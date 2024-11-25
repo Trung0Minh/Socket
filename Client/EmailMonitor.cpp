@@ -24,39 +24,58 @@ void EmailMonitor::start() {
     if (!running) {
         std::cout << "=== Starting Email Monitor ===" << std::endl;
 
-        // Check token file
+        // Kiểm tra token file với thông báo chi tiết hơn
         std::ifstream tokenFile("token.json");
-        if (tokenFile.is_open()) {
-            std::string content((std::istreambuf_iterator<char>(tokenFile)),
-                std::istreambuf_iterator<char>());
-            std::cout << "Token file content: " << content << std::endl;
-            tokenFile.close();
-        }
-        else {
-            std::cerr << "Cannot open token.json" << std::endl;
+        if (!tokenFile.is_open()) {
+            std::cerr << "Error: Cannot open token.json. Please ensure the file exists and has correct permissions" << std::endl;
             return;
         }
 
-        // Check if token is valid
+        std::string content((std::istreambuf_iterator<char>(tokenFile)),
+            std::istreambuf_iterator<char>());
+
+        if (content.empty()) {
+            std::cerr << "Error: token.json is empty" << std::endl;
+            tokenFile.close();
+            return;
+        }
+
+        std::cout << "Token file loaded successfully" << std::endl;
+        tokenFile.close();
+
+        // Kiểm tra token với thông báo chi tiết
         std::string accessToken = tokenManager.getValidAccessToken();
         if (accessToken.empty()) {
-            std::cerr << "Failed to get valid access token" << std::endl;
+            std::cerr << "Error: Failed to get valid access token. Please check your credentials" << std::endl;
             return;
         }
 
+        std::cout << "Access token validated successfully" << std::endl;
         running = true;
         monitorThread = std::thread(&EmailMonitor::monitorEmails, this);
-        std::cout << "Monitor thread started" << std::endl;
+        std::cout << "Monitor thread started successfully" << std::endl;
+    }
+    else {
+        std::cout << "EmailMonitor is already running" << std::endl;
     }
 }
 
 void EmailMonitor::stop() {
     if (running) {
+        std::cout << "Stopping EmailMonitor..." << std::endl;
         running = false;
         queueCV.notify_all();
+
+        // Clear the email queue
+        std::unique_lock<std::mutex> lock(queueMutex);
+        std::queue<std::string> empty;
+        std::swap(emailQueue, empty);
+        lock.unlock();
+
         if (monitorThread.joinable()) {
             monitorThread.join();
         }
+        std::cout << "EmailMonitor stopped successfully" << std::endl;
     }
 }
 
@@ -221,42 +240,71 @@ std::string EmailMonitor::trim(const std::string& str) {
 EmailMonitor::EmailContent EmailMonitor::parseEmailContent(const nlohmann::json& emailData) {
     EmailContent content;
 
-    // Extract headers
-    if (emailData.contains("payload") && emailData["payload"].contains("headers")) {
+    try {
+        // Extract headers with validation
+        if (!emailData.contains("payload") || !emailData["payload"].contains("headers")) {
+            throw std::runtime_error("Invalid email format: missing headers");
+        }
+
+        bool foundSubject = false, foundFrom = false;
         for (const auto& header : emailData["payload"]["headers"]) {
             if (header["name"] == "Subject") {
                 content.subject = header["value"];
+                foundSubject = true;
             }
             else if (header["name"] == "From") {
                 content.from = header["value"];
+                foundFrom = true;
             }
         }
-    }
 
-    // Extract body
-    if (emailData.contains("payload") && emailData["payload"].contains("parts")) {
+        if (!foundSubject || !foundFrom) {
+            throw std::runtime_error("Missing required headers");
+        }
+
+        // Extract and validate body
+        if (!emailData["payload"].contains("parts")) {
+            throw std::runtime_error("Invalid email format: missing body parts");
+        }
+
+        bool foundBody = false;
         for (const auto& part : emailData["payload"]["parts"]) {
-            if (part["mimeType"] == "text/plain") {
+            if (part["mimeType"] == "text/plain" && part["body"].contains("data")) {
                 std::string encodedBody = part["body"]["data"];
                 content.body = base64_decode(encodedBody);
+                foundBody = true;
                 break;
             }
         }
-    }
 
-    // Parse command and server IP from body
-    size_t ipPos = content.body.find("SERVER_IP=");
-    size_t cmdPos = content.body.find("COMMAND=");
+        if (!foundBody) {
+            throw std::runtime_error("No plain text body found");
+        }
 
-    if (ipPos != std::string::npos && cmdPos != std::string::npos) {
+        // Parse command and server IP with better validation
+        size_t ipPos = content.body.find("SERVER_IP=");
+        size_t cmdPos = content.body.find("COMMAND=");
+
+        if (ipPos == std::string::npos || cmdPos == std::string::npos) {
+            throw std::runtime_error("Missing SERVER_IP or COMMAND in email body");
+        }
+
         size_t ipEndPos = content.body.find("\n", ipPos);
-        content.serverIp = trim(content.body.substr(ipPos + 10, ipEndPos - (ipPos + 10)));
-
         size_t cmdEndPos = content.body.find("\n", cmdPos);
-        content.command = trim(content.body.substr(cmdPos + 8, cmdEndPos - (cmdPos + 8)));
-    }
 
-    return content;
+        content.serverIp = trim(content.body.substr(ipPos + 10, ipEndPos - (ipPos + 10)));
+        content.command = trim(content.body.substr(cmdPos + 8, cmdEndPos - (cmdPos + 8)));
+
+        if (content.serverIp.empty() || content.command.empty()) {
+            throw std::runtime_error("Empty SERVER_IP or COMMAND value");
+        }
+
+        return content;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error parsing email content: " << e.what() << std::endl;
+        return EmailContent(); // Return empty content
+    }
 }
 
 void EmailMonitor::processEmail(const std::string& emailId) {
@@ -299,46 +347,87 @@ void EmailMonitor::processEmail(const std::string& emailId) {
 
 bool EmailMonitor::executeCommand(const EmailContent& email) {
     std::string response;
-    bool success = client->executeCommand(email.serverIp, email.command, response);
+    bool success = false;
 
-    std::string emailResponse = success ?
-        "Command execution successful.\nServer response: " + response :
-        "Failed to execute command on server " + email.serverIp;
+    try {
+        // Thực hiện lệnh thông qua client
+        success = client->executeCommand(email.serverIp, email.command, response);
 
-    client->sendEmail(email.from,
-        "Re: Command Execution Result",
-        emailResponse);
+        // Nếu thành công
+        if (success) {
+            std::string emailResponse = "Command execution successful.\nServer response: " + response;
+            client->sendEmail(email.from,
+                "Re: Command Execution Result",
+                emailResponse);
+        }
+        // Nếu thất bại
+        else {
+            std::string emailResponse = "Failed to execute command on server " + email.serverIp + "\nError: " + response;
+            client->sendEmail(email.from,
+                "Re: Command Execution Failed",
+                emailResponse);
+        }
+    }
+    catch (const std::exception& e) {
+        std::string emailResponse = std::string("Error executing command: ") + e.what();
+        client->sendEmail(email.from,
+            "Re: Command Execution Failed",
+            emailResponse);
+        success = false;
+    }
 
     return success;
 }
 
 void EmailMonitor::monitorEmails() {
     std::cout << "=== Email monitoring started ===" << std::endl;
+
+    const int CHECK_INTERVAL = 10; // seconds
+    const int NETWORK_TIMEOUT = 30; // seconds
+
     while (running) {
         try {
+            auto start = std::chrono::steady_clock::now();
+
             bool checkResult = checkNewEmails();
             if (!checkResult) {
                 std::cout << "No new request emails found." << std::endl;
             }
-            else {
-                // Process any emails in the queue
+
+            auto end = std::chrono::steady_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
+
+            if (duration > NETWORK_TIMEOUT) {
+                std::cerr << "Warning: Network operation took longer than expected (" << duration << " seconds)" << std::endl;
+            }
+
+            // Process emails in queue with timeout protection
+            {
                 std::unique_lock<std::mutex> lock(queueMutex);
-                while (!emailQueue.empty()) {
+                while (!emailQueue.empty() && running) {
                     std::string emailId = emailQueue.front();
                     emailQueue.pop();
-                    lock.unlock(); // Unlock while processing email
+                    lock.unlock();
 
-                    processEmail(emailId); // Process the email
+                    auto processStart = std::chrono::steady_clock::now();
+                    processEmail(emailId);
+                    auto processEnd = std::chrono::steady_clock::now();
+                    auto processDuration = std::chrono::duration_cast<std::chrono::seconds>(processEnd - processStart).count();
 
-                    lock.lock(); // Lock again to check queue
+                    if (processDuration > NETWORK_TIMEOUT) {
+                        std::cerr << "Warning: Email processing took longer than expected (" << processDuration << " seconds)" << std::endl;
+                    }
+
+                    lock.lock();
                 }
             }
 
-            std::cout << "Waiting 10 seconds before next check..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(10));
+            std::cout << "Waiting " << CHECK_INTERVAL << " seconds before next check..." << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(CHECK_INTERVAL));
         }
         catch (const std::exception& e) {
-            std::cerr << "Error in monitor loop: " << e.what() << std::endl;
+            std::cerr << "Critical error in monitor loop: " << e.what() << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(5)); // Wait before retrying
         }
     }
 }

@@ -18,9 +18,7 @@ Client::Client() :
         log("Content:\n" + body);
         log("=====================");
 
-        // Lưu địa chỉ email người gửi
         lastSenderEmail = from;
-
         std::string command;
 
         // Đọc COMMAND từ email
@@ -37,33 +35,30 @@ Client::Client() :
 
         // Kiểm tra và thực thi yêu cầu
         if (!command.empty()) {
-            log("Executing command: " + command);
-
-            // Gửi command tới server
+            std::string response;
             if (sendData(command)) {
-                std::string response;
-                // Nhận kết quả từ server
                 if (receiveData(response)) {
-                    log("Command executed successfully");
-                    log("Response: " + response);
-                    // receiveData đã tự động gửi kết quả qua email cho user
+                    // Chỉ gửi email kết quả, không log lại quá trình thực thi
+                    sendEmail(lastSenderEmail, "Command Execution Result",
+                        "Command execution completed.\n\nResult:\n" + response,
+                        std::vector<uint8_t>(), "", false); // thêm tham số false để không log
                 }
                 else {
-                    log("Failed to receive response from server");
-                    // Gửi thông báo lỗi cho user
-                    sendEmail(lastSenderEmail, "Command Execution Error", "Failed to receive response from server");
+                    sendEmail(lastSenderEmail, "Command Execution Error",
+                        "Failed to receive response from server",
+                        std::vector<uint8_t>(), "", false);
                 }
             }
             else {
-                log("Failed to send command to server");
-                // Gửi thông báo lỗi cho user
-                sendEmail(lastSenderEmail, "Command Execution Error", "Failed to send command to server");
+                sendEmail(lastSenderEmail, "Command Execution Error",
+                    "Failed to send command to server",
+                    std::vector<uint8_t>(), "", false);
             }
         }
         else {
-            log("Invalid email format: Missing COMMAND");
-            // Gửi thông báo lỗi cho user
-            sendEmail(lastSenderEmail, "Invalid Request", "Email must contain COMMAND");
+            sendEmail(lastSenderEmail, "Invalid Request",
+                "Email must contain COMMAND",
+                std::vector<uint8_t>(), "", false);
         }
         });
 }
@@ -109,20 +104,28 @@ bool Client::isEmailMonitorRunning() const {
 bool Client::initializeConnection(const std::string& serverIP, const std::string& port) {
     std::lock_guard<std::mutex> lock(socketMutex);
     if (!clientSocket->Connect(serverIP.c_str(), port.c_str(), AF_INET)) {
-        log("Failed to connect to server at " + serverIP + ":" + port);
+        //log("Failed to connect to server at " + serverIP + ":" + port);
         return false;
     }
-    log("Successfully connected to " + serverIP + ":" + port);
+    //log("Successfully connected to " + serverIP + ":" + port);
     currentServerIP = serverIP;
     currentPort = port;
     return true;
 }
 
 bool Client::connect(const std::string& serverIP, const std::string& port) {
+    // Nếu đã kết nối đến cùng một địa chỉ, không cần kết nối lại
+    if (isConnected() && currentServerIP == serverIP && currentPort == port) {
+        log("Already connected to " + serverIP + ":" + port);
+        return true;
+    }
+
+    // Nếu đang kết nối đến địa chỉ khác, ngắt kết nối cũ
     if (isConnected()) {
         disconnect();
     }
-    return initializeConnection(serverIP, "54000"); // Sử dụng port 54000 để match với server
+
+    return initializeConnection(serverIP, port);
 }
 
 void Client::disconnect() {
@@ -166,20 +169,6 @@ bool Client::receiveData(std::string& response) {
     if (bytesReceived > 0) {
         response.assign(buffer, bytesReceived);
         log("Data received successfully");
-
-        // Gửi kết quả qua email
-        if (!lastSenderEmail.empty()) {
-            std::string emailSubject = "Command Execution Result";
-            std::string emailBody = "Command execution completed.\n\nResult:\n" + response;
-
-            if (sendEmail(lastSenderEmail, emailSubject, emailBody)) {
-                log("Result sent to " + lastSenderEmail + " via email");
-            }
-            else {
-                log("Failed to send result via email to " + lastSenderEmail);
-            }
-        }
-
         return true;
     }
     log("Failed to receive data");
@@ -237,53 +226,56 @@ bool Client::handleEmailMonitorCommand(const std::string& command, std::string& 
 bool Client::executeCommand(const std::string& serverIP, const std::string& command, std::string& response) {
     log("Executing command: " + command);
 
-    if (handleEmailMonitorCommand(command, response)) {
-        log("Email monitor command executed: " + response);
-        return true;
+    // Thử kết nối nếu chưa kết nối
+    if (!isConnected()) {
+        if (!connect(serverIP)) {
+            response = "Failed to connect to server";
+            log(response);
+            return false;
+        }
     }
 
-    if (!isConnected() && !connect(serverIP)) {
-        response = "Failed to connect to server";
+    // Gửi lệnh
+    if (!sendData(command)) {
+        // Nếu gửi thất bại, thử kết nối lại một lần
+        if (!connect(serverIP) || !sendData(command)) {
+            response = "Failed to send command to server";
+            log(response);
+            return false;
+        }
+    }
+
+    // Nhận phản hồi
+    if (!receiveData(response)) {
+        response = "Failed to receive response from server";
         log(response);
         return false;
     }
 
-    if (handleNetworkCommand(command, response)) {
-        log("Network command executed: " + response);
-        return true;
-    }
-
-    if (handleEmailCommand(command, response)) {
-        log("Email command executed: " + response);
-        return true;
-    }
-
-    if (sendData(command)) {
-        if (receiveData(response)) {
-            log("Command executed successfully. Response: " + response);
-            return true;
-        }
-    }
-
-    response = "Failed to execute command";
-    log(response);
-    return false;
+    log("Command executed successfully");
+    return true;
 }
 
 bool Client::sendEmail(const std::string& to,
     const std::string& subject,
     const std::string& textContent,
     const std::vector<uint8_t>& attachment,
-    const std::string& attachmentName) {
+    const std::string& attachmentName,
+    bool shouldLog = true) {
 
-    log("Sending email to: " + to);
+    if (shouldLog) {
+        log("Sending email to: " + to);
+    }
+
     bool success = emailSender.sendEmail(to, subject, textContent, attachment, attachmentName);
 
-    if (success) {
-        log("Email sent successfully");
-    }
-    else {
-        log("Failed to send email");
+    if (shouldLog) {
+        if (success) {
+            log("Email sent successfully");
+        }
+        else {
+            log("Failed to send email");
+        }
     }
 
     return success;
@@ -296,7 +288,7 @@ void Client::processEmailCommand(const std::string& command,
     const std::string& filePath) {
 
     if (command == "email_send_text") {
-        sendEmail(to, subject, content);
+        //sendEmail(to, subject, content);
     }
     else if (command == "email_send_attachment") {
         if (!filePath.empty()) {
@@ -315,17 +307,16 @@ void Client::processEmailCommand(const std::string& command,
 }
 
 bool Client::start(const std::string& serverIP) {
-    // Kết nối tới server trước
-    //if (!connect(serverIP)) {
-    //    log("Failed to connect to server at " + serverIP);
-    //    return false;
-    //}
-    log("Successfully connected to server at " + serverIP);
+    if (!isConnected()) {
+        if (!connect(serverIP, "54000")) {
+            log("Failed to connect during startup");
+            return false;
+        }
+    }
 
-    // Sau đó mới bắt đầu EmailMonitor
     running = true;
-    emailMonitor->start();
-    log("Email monitoring started");
+    startEmailMonitor();
+    log("Client started successfully");
     return true;
 }
 

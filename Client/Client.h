@@ -43,7 +43,7 @@ public:
     void setLogCallback(std::function<void(const std::string&)> callback);
 
     // Network operations
-    bool connect(const std::string& serverIP, const std::string& port = "27015");
+    bool connect(const std::string& serverIP, const std::string& port = "54000");
     void disconnect();
     bool isConnected() const;
     bool sendData(const std::string& data);
@@ -54,7 +54,8 @@ public:
         const std::string& subject,
         const std::string& textContent,
         const std::vector<uint8_t>& attachment = std::vector<uint8_t>(),
-        const std::string& attachmentName = "");
+        const std::string& attachmentName = "",
+        bool shouldLog = true);
 
     // Command processing
     bool executeCommand(const std::string& serverIP, const std::string& command, std::string& response);

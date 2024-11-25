@@ -83,6 +83,11 @@ bool ClientSocket::connectToServer() {
 }
 
 bool ClientSocket::Connect(const char* address, const char* port, int family) {
+    // Nếu đã có socket cũ, đóng nó trước
+    if (connectSocket != INVALID_SOCKET) {
+        Close();
+    }
+
     if (!initializeWinsock()) {
         return false;
     }
@@ -95,11 +100,7 @@ bool ClientSocket::Connect(const char* address, const char* port, int family) {
 bool ClientSocket::Close() {
     bool success = true;
     if (connectSocket != INVALID_SOCKET) {
-        // Shutdown the connection for both sending and receiving
-        if (shutdown(connectSocket, SD_BOTH) == SOCKET_ERROR) {
-            printError("Shutdown failed");
-            success = false;
-        }
+        shutdown(connectSocket, SD_BOTH);
         closesocket(connectSocket);
         connectSocket = INVALID_SOCKET;
     }
@@ -112,21 +113,45 @@ bool ClientSocket::IsConnected() const {
         return false;
     }
 
-    // Kiểm tra trạng thái kết nối
-    char error_code;
-    int error_code_size = sizeof(error_code);
-    int result = getsockopt(connectSocket, SOL_SOCKET, SO_ERROR, &error_code, &error_code_size);
+    // Kiểm tra xem socket có còn readable không
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(connectSocket, &readfds);
 
-    return (result == 0 && error_code == 0);
+    // Timeout 0 để kiểm tra ngay lập tức
+    timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 0;
+
+    // Kiểm tra trạng thái socket
+    int result = select(0, &readfds, nullptr, nullptr, &timeout);
+
+    if (result == SOCKET_ERROR) {
+        return false;
+    }
+
+    // Nếu socket readable, kiểm tra xem có dữ liệu pending không
+    if (result > 0) {
+        char buff;
+        result = recv(connectSocket, &buff, 1, MSG_PEEK);
+        // Nếu recv trả về 0, nghĩa là connection đã bị đóng
+        if (result == 0) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool ClientSocket::Send(const char* data, int length) {
-    if (!IsConnected()) return false;
+    if (connectSocket == INVALID_SOCKET) return false;
 
     int totalSent = 0;
     while (totalSent < length) {
         int result = send(connectSocket, data + totalSent, length - totalSent, 0);
         if (result == SOCKET_ERROR) {
+            // Nếu gửi thất bại, đánh dấu socket là invalid
+            connectSocket = INVALID_SOCKET;
             printError("Send failed");
             return false;
         }
@@ -136,7 +161,13 @@ bool ClientSocket::Send(const char* data, int length) {
 }
 
 int ClientSocket::Receive(char* buffer, int bufferSize) {
-    if (!IsConnected()) return -1;
+    if (connectSocket == INVALID_SOCKET) return -1;
 
-    return recv(connectSocket, buffer, bufferSize, 0);
+    int result = recv(connectSocket, buffer, bufferSize, 0);
+    if (result == SOCKET_ERROR || result == 0) {
+        // Nếu nhận thất bại hoặc connection closed, đánh dấu socket là invalid
+        connectSocket = INVALID_SOCKET;
+        return -1;
+    }
+    return result;
 }
