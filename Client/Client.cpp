@@ -8,6 +8,8 @@ Client::Client() :
     clientSocket(std::make_unique<ClientSocket>()),
     emailMonitor(std::make_unique<EmailMonitor>(this)),
     running(false),
+    shouldCheckConnection(false),
+    reconnectionAttempts(0),
     logCallback(nullptr),
     lastSenderEmail("") {
 
@@ -128,9 +130,12 @@ bool Client::connect(const std::string& serverIP, const std::string& port) {
         log("Failed to connect to server at " + serverIP + ":" + port);
         return false;
     }
+
     log("Successfully connected to " + serverIP + ":" + port);
     currentServerIP = serverIP;
     currentPort = port;
+    reconnectionAttempts = 0;  // Reset reconnection attempts
+    shouldCheckConnection = true;  // Enable connection checking
     return true;
 }
 
@@ -138,6 +143,9 @@ void Client::disconnect() {
     std::lock_guard<std::mutex> lock(socketMutex);
     if (clientSocket) {
         clientSocket->Close();
+        currentServerIP.clear();
+        currentPort.clear();
+        reconnectionAttempts = 0;
         log("Disconnected from server");
     }
 }
@@ -237,6 +245,11 @@ bool Client::start(const std::string& serverIP) {
     }
 
     running = true;
+    shouldCheckConnection = true;
+
+    // Khởi động thread kiểm tra kết nối
+    connectionCheckerThread = std::thread(&Client::connectionCheckerLoop, this);
+
     startEmailMonitor();
     log("Client started successfully");
     return true;
@@ -245,8 +258,53 @@ bool Client::start(const std::string& serverIP) {
 void Client::stop() {
     if (running) {
         running = false;
+        shouldCheckConnection = false;
+
+        // Đợi thread kiểm tra kết nối kết thúc
+        if (connectionCheckerThread.joinable()) {
+            connectionCheckerThread.join();
+        }
+
         stopEmailMonitor();
         disconnect();
         log("Client stopped successfully");
+    }
+}
+
+void Client::connectionCheckerLoop() {
+    while (shouldCheckConnection && running) {
+        if (!clientSocket->IsConnected()) {
+            log("Connection lost to server at " + currentServerIP + ":" + currentPort);
+
+            // Thử kết nối lại
+            if (reconnectionAttempts < MAX_RECONNECTION_ATTEMPTS) {
+                std::lock_guard<std::mutex> lock(socketMutex);
+                reconnectionAttempts++;
+
+                log("Reconnection attempt " + std::to_string(reconnectionAttempts) + " of " + std::to_string(MAX_RECONNECTION_ATTEMPTS));
+
+                if (!clientSocket->Connect(currentServerIP.c_str(), currentPort.c_str(), AF_INET)) {
+                    log("Reconnection attempt failed");
+                }
+                else {
+                    log("Successfully reconnected to server");
+                    reconnectionAttempts = 0; // Reset counter on successful reconnection
+                }
+            }
+            else {
+                log("Maximum reconnection attempts reached. Connection to server " + currentServerIP + " is permanently lost");
+                log("Please reconnect manually with new server IP");
+
+                // Reset connection-related variables
+                currentServerIP.clear();
+                currentPort.clear();
+                reconnectionAttempts = 0;
+
+                // Stop the connection checker
+                shouldCheckConnection = false;
+                break;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }

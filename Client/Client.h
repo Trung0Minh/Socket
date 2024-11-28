@@ -10,6 +10,8 @@
 #include "returnToken.h"
 #include "EmailMonitor.h"
 
+//class ClientSocket;
+
 class Client {
 private:
     std::unique_ptr<ClientSocket> clientSocket;
@@ -31,6 +33,13 @@ private:
     void log(const std::string& message);
 
     std::string lastSenderEmail;  // Thêm biến này để lưu email người gửi gần nhất
+
+    std::thread connectionCheckerThread;
+    void connectionCheckerLoop();
+    bool shouldCheckConnection;
+    static const int MAX_RECONNECTION_ATTEMPTS = 3;
+    int reconnectionAttempts;
+    bool needReconnection;
 
 public:
     Client();

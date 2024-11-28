@@ -128,9 +128,8 @@ bool ClientSocket::IsConnected() const {
     return const_cast<ClientSocket*>(this)->checkConnection();
 }
 
-// Sửa lại hàm Send
 bool ClientSocket::Send(const char* data, int length) {
-    if (!IsConnected()) return false;
+    if (!checkConnection()) return false;
 
     int totalSent = 0;
     int retryCount = 0;
@@ -142,6 +141,10 @@ bool ClientSocket::Send(const char* data, int length) {
             if (error == WSAEWOULDBLOCK) {
                 Sleep(100);
                 retryCount++;
+                if (!checkConnection()) {
+                    Close();
+                    return false;
+                }
                 continue;
             }
             printError("Send failed");
@@ -155,9 +158,8 @@ bool ClientSocket::Send(const char* data, int length) {
     return totalSent == length;
 }
 
-// Sửa lại hàm Receive
 int ClientSocket::Receive(char* buffer, int bufferSize) {
-    if (!IsConnected()) return -1;
+    if (!checkConnection()) return -1;
 
     int totalReceived = 0;
     int retryCount = 0;
@@ -173,7 +175,7 @@ int ClientSocket::Receive(char* buffer, int bufferSize) {
         }
 
         if (result == 0) {
-            // Connection closed gracefully
+            // Connection closed by server
             Close();
             return totalReceived > 0 ? totalReceived : -1;
         }
@@ -182,6 +184,10 @@ int ClientSocket::Receive(char* buffer, int bufferSize) {
         if (error == WSAEWOULDBLOCK) {
             Sleep(100);
             retryCount++;
+            if (!checkConnection()) {
+                Close();
+                return -1;
+            }
             continue;
         }
 
@@ -207,14 +213,43 @@ bool ClientSocket::checkConnection() {
         return false;
     }
 
-    fd_set writeSet;
+    // Kiểm tra kết nối bằng select
+    fd_set readSet, writeSet, errorSet;
+    FD_ZERO(&readSet);
     FD_ZERO(&writeSet);
+    FD_ZERO(&errorSet);
+    FD_SET(connectSocket, &readSet);
     FD_SET(connectSocket, &writeSet);
+    FD_SET(connectSocket, &errorSet);
 
     timeval timeout;
     timeout.tv_sec = 0;
     timeout.tv_usec = 500000; // 500ms
 
-    int result = select(0, NULL, &writeSet, NULL, &timeout);
-    return result == 1;
+    // Kiểm tra cả đọc, ghi và lỗi
+    int result = select(0, &readSet, &writeSet, &errorSet, &timeout);
+
+    if (result == SOCKET_ERROR) {
+        Close();
+        return false;
+    }
+
+    // Kiểm tra nếu có lỗi
+    if (FD_ISSET(connectSocket, &errorSet)) {
+        Close();
+        return false;
+    }
+
+    // Kiểm tra xem có dữ liệu đang chờ đọc không
+    if (FD_ISSET(connectSocket, &readSet)) {
+        char tmp[1];
+        result = recv(connectSocket, tmp, 1, MSG_PEEK);
+        if (result == 0 || result == SOCKET_ERROR) {
+            // Connection closed or error
+            Close();
+            return false;
+        }
+    }
+
+    return FD_ISSET(connectSocket, &writeSet);
 }

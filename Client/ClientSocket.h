@@ -11,7 +11,6 @@
 #pragma comment (lib, "Mswsock.lib")
 #pragma comment (lib, "AdvApi32.lib")
 
-// ClientSocket.h
 class ClientSocket {
 private:
     WSADATA wsaData;
@@ -23,6 +22,8 @@ private:
     static const int DEFAULT_BUFLEN = 4096;
     static const int SOCKET_TIMEOUT = 5000; // 5 seconds
     static const int MAX_RETRY_COUNT = 3;
+    static const int KEEPALIVE_TIME = 10000;    // 10 seconds
+    static const int KEEPALIVE_INTERVAL = 1000; // 1 second
 
     bool initializeWinsock();
     bool createSocket(const char* address, const char* port, int family);
@@ -30,7 +31,8 @@ private:
     void printError(const char* message) {
         std::cerr << message << " Error: " << WSAGetLastError() << std::endl;
     }
-    bool checkConnection();
+    bool setupKeepAlive();
+   
 
 public:
     ClientSocket();
@@ -43,4 +45,7 @@ public:
     int Receive(char* buffer, int bufferSize);
     SOCKET GetSocket() const { return connectSocket; }
     void setNonBlocking(bool nonBlocking);
+    bool TestConnection(); // New public method for connection testing
+
+    bool checkConnection();
 };
