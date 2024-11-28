@@ -59,15 +59,20 @@ bool ClientSocket::createSocket(const char* address, const char* port, int famil
     return true;
 }
 
+// Trong hàm connectToServer()
 bool ClientSocket::connectToServer() {
     if (connectSocket == INVALID_SOCKET) {
         return false;
     }
 
-    // Thiết lập timeout cho socket
-    DWORD timeout = 5000; // 5 giây
+    // Set timeout trước khi connect
+    DWORD timeout = SOCKET_TIMEOUT;
     setsockopt(connectSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
     setsockopt(connectSocket, SOL_SOCKET, SO_SNDTIMEO, (char*)&timeout, sizeof(timeout));
+
+    // Enable keep-alive
+    BOOL keepAlive = TRUE;
+    setsockopt(connectSocket, SOL_SOCKET, SO_KEEPALIVE, (char*)&keepAlive, sizeof(keepAlive));
 
     int iResult = connect(connectSocket, ptr->ai_addr, (int)ptr->ai_addrlen);
     if (iResult == SOCKET_ERROR) {
@@ -94,7 +99,13 @@ bool ClientSocket::Connect(const char* address, const char* port, int family) {
     if (!createSocket(address, port, family)) {
         return false;
     }
-    return connectToServer();
+
+    bool connected = connectToServer();
+    if (connected) {
+        // Set socket to non-blocking mode after successful connection
+        setNonBlocking(true);
+    }
+    return connected;
 }
 
 bool ClientSocket::Close() {
@@ -113,61 +124,97 @@ bool ClientSocket::IsConnected() const {
         return false;
     }
 
-    // Kiểm tra xem socket có còn readable không
-    fd_set readfds;
-    FD_ZERO(&readfds);
-    FD_SET(connectSocket, &readfds);
-
-    // Timeout 0 để kiểm tra ngay lập tức
-    timeval timeout;
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 0;
-
-    // Kiểm tra trạng thái socket
-    int result = select(0, &readfds, nullptr, nullptr, &timeout);
-
-    if (result == SOCKET_ERROR) {
-        return false;
-    }
-
-    // Nếu socket readable, kiểm tra xem có dữ liệu pending không
-    if (result > 0) {
-        char buff;
-        result = recv(connectSocket, &buff, 1, MSG_PEEK);
-        // Nếu recv trả về 0, nghĩa là connection đã bị đóng
-        if (result == 0) {
-            return false;
-        }
-    }
-
-    return true;
+    // Cast away const để gọi checkConnection
+    return const_cast<ClientSocket*>(this)->checkConnection();
 }
 
+// Sửa lại hàm Send
 bool ClientSocket::Send(const char* data, int length) {
-    if (connectSocket == INVALID_SOCKET) return false;
+    if (!IsConnected()) return false;
 
     int totalSent = 0;
-    while (totalSent < length) {
+    int retryCount = 0;
+
+    while (totalSent < length && retryCount < MAX_RETRY_COUNT) {
         int result = send(connectSocket, data + totalSent, length - totalSent, 0);
         if (result == SOCKET_ERROR) {
-            // Nếu gửi thất bại, đánh dấu socket là invalid
-            connectSocket = INVALID_SOCKET;
+            int error = WSAGetLastError();
+            if (error == WSAEWOULDBLOCK) {
+                Sleep(100);
+                retryCount++;
+                continue;
+            }
             printError("Send failed");
+            Close();
             return false;
         }
         totalSent += result;
+        retryCount = 0; // Reset retry count on successful send
     }
-    return true;
+
+    return totalSent == length;
 }
 
+// Sửa lại hàm Receive
 int ClientSocket::Receive(char* buffer, int bufferSize) {
-    if (connectSocket == INVALID_SOCKET) return -1;
+    if (!IsConnected()) return -1;
 
-    int result = recv(connectSocket, buffer, bufferSize, 0);
-    if (result == SOCKET_ERROR || result == 0) {
-        // Nếu nhận thất bại hoặc connection closed, đánh dấu socket là invalid
-        connectSocket = INVALID_SOCKET;
+    int totalReceived = 0;
+    int retryCount = 0;
+
+    while (retryCount < MAX_RETRY_COUNT) {
+        int result = recv(connectSocket, buffer + totalReceived,
+            bufferSize - totalReceived, 0);
+
+        if (result > 0) {
+            totalReceived += result;
+            if (totalReceived >= bufferSize) break;
+            continue;
+        }
+
+        if (result == 0) {
+            // Connection closed gracefully
+            Close();
+            return totalReceived > 0 ? totalReceived : -1;
+        }
+
+        int error = WSAGetLastError();
+        if (error == WSAEWOULDBLOCK) {
+            Sleep(100);
+            retryCount++;
+            continue;
+        }
+
+        // Other errors indicate connection problem
+        printError("Receive failed");
+        Close();
         return -1;
     }
-    return result;
+
+    return totalReceived;
+}
+
+void ClientSocket::setNonBlocking(bool nonBlocking) {
+    if (connectSocket != INVALID_SOCKET) {
+        u_long mode = nonBlocking ? 1 : 0;
+        ioctlsocket(connectSocket, FIONBIO, &mode);
+    }
+}
+
+// Đơn giản hóa hàm checkConnection
+bool ClientSocket::checkConnection() {
+    if (connectSocket == INVALID_SOCKET) {
+        return false;
+    }
+
+    fd_set writeSet;
+    FD_ZERO(&writeSet);
+    FD_SET(connectSocket, &writeSet);
+
+    timeval timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 500000; // 500ms
+
+    int result = select(0, NULL, &writeSet, NULL, &timeout);
+    return result == 1;
 }

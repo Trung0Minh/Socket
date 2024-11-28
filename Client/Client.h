@@ -25,10 +25,7 @@ private:
     std::string currentPort;
 
     // Helper methods
-    bool initializeConnection(const std::string& serverIP, const std::string& port);
-    bool handleNetworkCommand(const std::string& command, std::string& response);
-    bool handleEmailCommand(const std::string& command, std::string& response);
-    bool handleEmailMonitorCommand(const std::string& command, std::string& response);
+    //bool initializeConnection(const std::string& serverIP, const std::string& port);
 
     // Logging helper
     void log(const std::string& message);
@@ -49,21 +46,16 @@ public:
     bool sendData(const std::string& data);
     bool receiveData(std::string& response);
 
+
     // Email operations
     bool sendEmail(const std::string& to,
         const std::string& subject,
         const std::string& textContent,
         const std::vector<uint8_t>& attachment = std::vector<uint8_t>(),
-        const std::string& attachmentName = "",
-        bool shouldLog = true);
+        const std::string& attachmentName = "");
 
     // Command processing
     bool executeCommand(const std::string& serverIP, const std::string& command, std::string& response);
-    void processEmailCommand(const std::string& command,
-        const std::string& to = "",
-        const std::string& subject = "",
-        const std::string& content = "",
-        const std::string& filePath = "");
 
     // Email monitoring operations
     void setEmailCallback(EmailMonitor::EmailCallback cb);

@@ -122,7 +122,6 @@ void ClientUI::OnConnectClick(wxCommandEvent& event) {
     }
 
     if (client->connect(ip.ToStdString())) {
-        AddLogMessage("Successfully connected to " + ip);
         connectedServers.push_back(std::make_pair(ip, true));
         UpdateServerList();
         completeButton->Enable(true);

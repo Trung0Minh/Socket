@@ -22,8 +22,6 @@ EmailMonitor::~EmailMonitor() {
 
 void EmailMonitor::start() {
     if (!running) {
-        std::cout << "=== Starting Email Monitor ===" << std::endl;
-
         // Kiểm tra token file với thông báo chi tiết hơn
         std::ifstream tokenFile("token.json");
         if (!tokenFile.is_open()) {
@@ -62,7 +60,6 @@ void EmailMonitor::start() {
 
 void EmailMonitor::stop() {
     if (running) {
-        std::cout << "Stopping EmailMonitor..." << std::endl;
         running = false;
         queueCV.notify_all();
 
@@ -75,7 +72,6 @@ void EmailMonitor::stop() {
         if (monitorThread.joinable()) {
             monitorThread.join();
         }
-        std::cout << "EmailMonitor stopped successfully" << std::endl;
     }
 }
 
@@ -380,8 +376,6 @@ bool EmailMonitor::executeCommand(const EmailContent& email) {
 }
 
 void EmailMonitor::monitorEmails() {
-    std::cout << "=== Email monitoring started ===" << std::endl;
-
     const int CHECK_INTERVAL = 10; // seconds
     const int NETWORK_TIMEOUT = 30; // seconds
 
