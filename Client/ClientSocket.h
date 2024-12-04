@@ -1,5 +1,4 @@
-﻿// ClientSocket.h
-#pragma once
+﻿#pragma once
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winsock2.h>
@@ -28,11 +27,10 @@ private:
     bool initializeWinsock();
     bool createSocket(const char* address, const char* port, int family);
     bool connectToServer();
+    void freeAddrInfo();
     void printError(const char* message) {
         std::cerr << message << " Error: " << WSAGetLastError() << std::endl;
     }
-    bool setupKeepAlive();
-   
 
 public:
     ClientSocket();
@@ -45,7 +43,6 @@ public:
     int Receive(char* buffer, int bufferSize);
     SOCKET GetSocket() const { return connectSocket; }
     void setNonBlocking(bool nonBlocking);
-    bool TestConnection(); // New public method for connection testing
 
     bool checkConnection();
 };

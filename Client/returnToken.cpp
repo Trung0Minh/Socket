@@ -1,12 +1,14 @@
-// returnToken.cpp
 #include "returnToken.h"
 
-// Add static keyword here
+// Callback function for CURL to write data
 size_t TokenManager::WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
-    userp->append((char*)contents, size * nmemb);
+    if (userp) {
+        userp->append(static_cast<char*>(contents), size * nmemb);
+    }
     return size * nmemb;
 }
 
+// Checks if the token has expired
 bool TokenManager::isTokenExpired() {
     try {
         if (!token_data.contains("created_at")) {
@@ -25,6 +27,7 @@ bool TokenManager::isTokenExpired() {
     }
 }
 
+// Refreshes the token using the refresh token
 bool TokenManager::refreshToken() {
     try {
         CURL* curl = curl_easy_init();
@@ -47,8 +50,8 @@ bool TokenManager::refreshToken() {
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // Enable SSL verification
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L); // Verify the host
 
         CURLcode res = curl_easy_perform(curl);
 
@@ -59,7 +62,14 @@ bool TokenManager::refreshToken() {
             token_data["created_at"] = std::time(nullptr);
             token_data["expires_in"] = new_token["expires_in"];
             std::ofstream file(config->TOKEN_FILE);
-            file << token_data.dump(4);
+            if (file.is_open()) {
+                file << token_data.dump(4);
+                file.close();
+            }
+            else {
+                std::cerr << "Failed to open file for writing: " << config->TOKEN_FILE << std::endl;
+                success = false;
+            }
         }
         else {
             std::cerr << "Failed to refresh token: " << curl_easy_strerror(res) << std::endl;
@@ -76,6 +86,7 @@ bool TokenManager::refreshToken() {
     }
 }
 
+// Loads token data from a file
 bool TokenManager::loadTokenFile() {
     try {
         std::ifstream file(config->TOKEN_FILE);
@@ -84,19 +95,16 @@ bool TokenManager::loadTokenFile() {
             return false;
         }
 
-        std::string json_str;
-        std::string line;
-        while (std::getline(file, line)) {
-            json_str += line;
-        }
+        json token_json;
+        file >> token_json;
         file.close();
 
-        if (json_str.empty()) {
+        if (token_json.is_null() || token_json.empty()) {
             std::cerr << "Empty token file" << std::endl;
             return false;
         }
 
-        token_data = json::parse(json_str);
+        token_data = token_json;
 
         if (!token_data.contains("access_token") ||
             !token_data.contains("expires_in") ||
@@ -108,8 +116,14 @@ bool TokenManager::loadTokenFile() {
         if (!token_data.contains("created_at")) {
             token_data["created_at"] = time(nullptr);
             std::ofstream out_file(config->TOKEN_FILE);
-            out_file << token_data.dump(4);
-            out_file.close();
+            if (out_file.is_open()) {
+                out_file << token_data.dump(4);
+                out_file.close();
+            }
+            else {
+                std::cerr << "Failed to open file for writing: " << config->TOKEN_FILE << std::endl;
+                return false;
+            }
         }
 
         return true;
@@ -124,6 +138,7 @@ bool TokenManager::loadTokenFile() {
     }
 }
 
+// Ensures the access token is valid
 std::string TokenManager::getValidAccessToken() {
     try {
         if (!loadTokenFile()) {
@@ -132,7 +147,7 @@ std::string TokenManager::getValidAccessToken() {
         }
 
         if (isTokenExpired()) {
-            std::cout << "Token is expired" << std::endl;
+            std::cerr << "Token is expired" << std::endl;
             if (!refreshToken()) {
                 std::cerr << "Failed to refresh token" << std::endl;
                 return "";
@@ -144,15 +159,5 @@ std::string TokenManager::getValidAccessToken() {
     catch (const std::exception& e) {
         std::cerr << "Error in getValidAccessToken: " << e.what() << std::endl;
         return "";
-    }
-}
-
-void TokenManager::printTokenData() {
-    try {
-        std::cout << "Token Data:" << std::endl;
-        std::cout << token_data.dump(4) << std::endl;
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Error printing token data: " << e.what() << std::endl;
     }
 }

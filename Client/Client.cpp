@@ -1,97 +1,86 @@
-﻿// Client.cpp
-#include "Client.h"
+﻿#include "Client.h"
 #include <iostream>
 #include <sstream>
 #include <fstream>
 
+// Constructor initializes members and sets up email monitor callback
 Client::Client() :
     clientSocket(std::make_unique<ClientSocket>()),
-    emailMonitor(std::make_unique<EmailMonitor>(this)),
+    emailMonitor(std::make_unique<EmailMonitor>()),
+    emailSender(), // Đảm bảo emailSender được khởi tạo
     running(false),
     shouldCheckConnection(false),
     reconnectionAttempts(0),
-    logCallback(nullptr),
-    lastSenderEmail("") {
+    needReconnection(false),
+    logCallback(nullptr) {
 
-    // Set up email monitor callback
-    emailMonitor->setCallback([this](const std::string& from, const std::string& subject, const std::string& body) {
-        lastSenderEmail = from;
-        std::string command;
+    // Thiết lập command executor
+    emailMonitor->setCommandExecutor(
+        [this](const std::string& serverIP, const std::string& command,
+            std::string& response, const std::string& senderEmail) -> bool {
+                try {
+                    if (serverIP.empty() || command.empty()) {
+                        log("Error: Invalid command parameters");
+                        return false;
+                    }
 
-        // Read COMMAND from email
-        size_t cmdStart = body.find("COMMAND=");
-        if (cmdStart != std::string::npos) {
-            cmdStart += 8;
-            size_t cmdEnd = body.find("\n", cmdStart);
-            if (cmdEnd != std::string::npos) {
-                command = body.substr(cmdStart, cmdEnd - cmdStart);
-                command.erase(0, command.find_first_not_of(" \t\r\n"));
-                command.erase(command.find_last_not_of(" \t\r\n") + 1);
-            }
-        }
+                    lastSenderEmail = senderEmail; // Lưu email người gửi
 
-        if (!command.empty()) {
-            log("Executing command: " + command);
-            std::string response;
-            bool commandSuccess = false;
+                    if (!executeCommand(serverIP, command, response, senderEmail)) {
+                        log("Error: Command execution failed for server " + serverIP);
+                        return false;
+                    }
 
-            if (sendData(command)) {
-                if (receiveData(response)) {
-                    log("Command executed successfully");
-                    log("Response: " + response);
-                    commandSuccess = true;
+                    return true;
                 }
-                else {
-                    log("Failed to receive response from server");
-                    response = "Failed to receive response from server";
+                catch (const std::exception& e) {
+                    log("Error in command executor: " + std::string(e.what()));
+                    return false;
                 }
-            }
-            else {
-                log("Failed to send command to server");
-                response = "Failed to send command to server";
-            }
-
-            // Gửi email response sau khi đã xử lý command xong
-            if (commandSuccess) {
-                sendEmail(lastSenderEmail, "Command Response", response);
-            }
-            else {
-                sendEmail(lastSenderEmail, "Command Execution Error", response);
-            }
         }
-        else {
-            log("Invalid email format: Missing COMMAND");
-            sendEmail(lastSenderEmail, "Invalid Request", "Email must contain COMMAND");
-        }
-        });
+    );
 }
 
+// Destructor stops the client and joins threads
 Client::~Client() {
     stop();
 }
 
+// Sets the logging callback function
 void Client::setLogCallback(std::function<void(const std::string&)> callback) {
     logCallback = callback;
+    // Đồng bộ logging system
+    if (emailMonitor) {
+        emailMonitor->setLogCallback(
+            [this](const std::string& message) {
+                if (logCallback) logCallback(message);
+            }
+        );
+    }
 }
 
+// Helper function to log messages using the callback
 void Client::log(const std::string& message) {
     if (logCallback) {
         logCallback(message);
     }
 }
 
+// Sets the email monitoring callback
 void Client::setEmailCallback(EmailMonitor::EmailCallback cb) {
     if (emailMonitor) {
         emailMonitor->setCallback(cb);
     }
 }
 
+// Starts the email monitor
 void Client::startEmailMonitor() {
     if (emailMonitor) {
         emailMonitor->start();
     }
 }
 
+// Stops the email monitor
 void Client::stopEmailMonitor() {
     if (emailMonitor) {
         emailMonitor->stop();
@@ -99,31 +88,19 @@ void Client::stopEmailMonitor() {
     }
 }
 
+// Checks if the email monitor is running
 bool Client::isEmailMonitorRunning() const {
     return emailMonitor && emailMonitor->isRunning();
 }
 
-//bool Client::initializeConnection(const std::string& serverIP, const std::string& port) {
-//    std::lock_guard<std::mutex> lock(socketMutex);
-//    if (!clientSocket->Connect(serverIP.c_str(), port.c_str(), AF_INET)) {
-//        //log("Failed to connect to server at " + serverIP + ":" + port);
-//        return false;
-//    }
-//    //log("Successfully connected to " + serverIP + ":" + port);
-//    currentServerIP = serverIP;
-//    currentPort = port;
-//    return true;
-//}
-
+// Connects to the server with given IP and port
 bool Client::connect(const std::string& serverIP, const std::string& port) {
     if (isConnected() && currentServerIP == serverIP && currentPort == port) {
         log("Already connected to " + serverIP + ":" + port);
         return true;
     }
 
-    if (isConnected()) {
-        disconnect();
-    }
+    disconnect();
 
     std::lock_guard<std::mutex> lock(socketMutex);
     if (!clientSocket->Connect(serverIP.c_str(), port.c_str(), AF_INET)) {
@@ -134,27 +111,31 @@ bool Client::connect(const std::string& serverIP, const std::string& port) {
     log("Successfully connected to " + serverIP + ":" + port);
     currentServerIP = serverIP;
     currentPort = port;
-    reconnectionAttempts = 0;  // Reset reconnection attempts
-    shouldCheckConnection = true;  // Enable connection checking
+    reconnectionAttempts = 0;
+    shouldCheckConnection = true;
     return true;
 }
 
+// Disconnects from the server
 void Client::disconnect() {
     std::lock_guard<std::mutex> lock(socketMutex);
+
     if (clientSocket) {
         clientSocket->Close();
-        currentServerIP.clear();
-        currentPort.clear();
-        reconnectionAttempts = 0;
-        log("Disconnected from server");
+        clientSocket = std::make_unique<ClientSocket>();
     }
+
+    currentServerIP.clear();
+    currentPort.clear();
+    reconnectionAttempts = 0;
 }
 
+// Checks if the client is connected to the server
 bool Client::isConnected() const {
     return clientSocket && clientSocket->IsConnected();
 }
 
-// Sửa lại hàm sendData
+// Sends data to the server
 bool Client::sendData(const std::string& data) {
     std::lock_guard<std::mutex> lock(socketMutex);
     if (!clientSocket->IsConnected()) {
@@ -164,12 +145,13 @@ bool Client::sendData(const std::string& data) {
 
     if (!clientSocket->Send(data.c_str(), data.length())) {
         log("Failed to send data");
+        disconnect();
         return false;
     }
     return true;
 }
 
-// Sửa lại hàm receiveData trong Client
+// Receives data from the server
 bool Client::receiveData(std::string& response) {
     std::lock_guard<std::mutex> lock(socketMutex);
     if (!clientSocket->IsConnected()) {
@@ -195,28 +177,49 @@ bool Client::receiveData(std::string& response) {
     }
 }
 
-bool Client::executeCommand(const std::string& serverIP, const std::string& command, std::string& response) {
-    if (!clientSocket->IsConnected()) {
-        log("Lost connection to server, attempting to reconnect...");
-        if (!connect(serverIP)) {
-            log("Reconnection failed");
+// Executes a command on the server
+bool Client::executeCommand(const std::string& serverIP,
+    const std::string& command,
+    std::string& response,
+    const std::string& senderEmail) {
+
+    try {
+        if (!isConnected()) {
+            log("Lost connection to server, attempting to reconnect...");
+            if (!connect(serverIP)) {
+                if (reconnectCallback) {
+                    reconnectCallback("Reconnection failed to " + serverIP);
+                }
+                return false;
+            }
+        }
+
+        if (!sendData(command)) {
+            log("Failed to send command");
             return false;
         }
-    }
 
-    if (!sendData(command)) {
-        log("Failed to send command - Connection might be lost");
+        if (!receiveData(response)) {
+            log("Failed to receive response");
+            return false;
+        }
+
+        // Gửi email phản hồi nếu có người gửi
+        if (!senderEmail.empty() && !response.empty()) {
+            if (!sendEmail(senderEmail, "Command Execution Result", response)) {
+                log("Warning: Failed to send response email");
+            }
+        }
+
+        return true;
+    }
+    catch (const std::exception& e) {
+        log("Error executing command: " + std::string(e.what()));
         return false;
     }
-
-    if (!receiveData(response)) {
-        log("Failed to receive response - Connection might be lost");
-        return false;
-    }
-
-    return true;
 }
 
+// Sends an email with optional attachment
 bool Client::sendEmail(const std::string& to,
     const std::string& subject,
     const std::string& textContent,
@@ -236,6 +239,7 @@ bool Client::sendEmail(const std::string& to,
     return success;
 }
 
+// Starts the client and connection checker thread
 bool Client::start(const std::string& serverIP) {
     if (!isConnected()) {
         if (!connect(serverIP, "54000")) {
@@ -247,20 +251,21 @@ bool Client::start(const std::string& serverIP) {
     running = true;
     shouldCheckConnection = true;
 
-    // Khởi động thread kiểm tra kết nối
-    connectionCheckerThread = std::thread(&Client::connectionCheckerLoop, this);
+    // Thêm dòng này để EmailMonitor dùng cùng logging system
+    emailMonitor->setLogCallback(logCallback);
 
+    connectionCheckerThread = std::thread(&Client::connectionCheckerLoop, this);
     startEmailMonitor();
     log("Client started successfully");
     return true;
 }
 
+// Stops the client and cleans up resources
 void Client::stop() {
     if (running) {
         running = false;
         shouldCheckConnection = false;
 
-        // Đợi thread kiểm tra kết nối kết thúc
         if (connectionCheckerThread.joinable()) {
             connectionCheckerThread.join();
         }
@@ -271,40 +276,79 @@ void Client::stop() {
     }
 }
 
+// Connection checking loop for reconnection attempts
 void Client::connectionCheckerLoop() {
+    const int ATTEMPT_DURATION = 5; // Thời gian mỗi lần attempt (giây)
+    bool hasLoggedConnectionLost = false;
+
     while (shouldCheckConnection && running) {
         if (!clientSocket->IsConnected()) {
-            log("Connection lost to server at " + currentServerIP + ":" + currentPort);
+            if (!hasLoggedConnectionLost) {
+                log("Connection lost to server at " + currentServerIP + ":" + currentPort);
+                hasLoggedConnectionLost = true;
+            }
 
             // Thử kết nối lại
             if (reconnectionAttempts < MAX_RECONNECTION_ATTEMPTS) {
                 std::lock_guard<std::mutex> lock(socketMutex);
                 reconnectionAttempts++;
 
-                log("Reconnection attempt " + std::to_string(reconnectionAttempts) + " of " + std::to_string(MAX_RECONNECTION_ATTEMPTS));
+                log("Reconnection attempt " + std::to_string(reconnectionAttempts) +
+                    " of " + std::to_string(MAX_RECONNECTION_ATTEMPTS));
 
-                if (!clientSocket->Connect(currentServerIP.c_str(), currentPort.c_str(), AF_INET)) {
-                    log("Reconnection attempt failed");
+                // Attempt reconnection for 5 seconds with loading animation
+                bool reconnected = false;
+                int dotCount = 0;
+                auto startTime = std::chrono::steady_clock::now();
+
+                while (std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - startTime).count() < ATTEMPT_DURATION) {
+
+                    // Attempt connection
+                    if (clientSocket->Connect(currentServerIP.c_str(), currentPort.c_str(), AF_INET)) {
+                        reconnected = true;
+                        break;
+                    }
                 }
-                else {
+
+                if (reconnected) {
                     log("Successfully reconnected to server");
                     reconnectionAttempts = 0; // Reset counter on successful reconnection
+                    hasLoggedConnectionLost = false;
+
+                    // Thêm gọi callback khi reconnect thành công
+                    if (reconnectCallback) {
+                        reconnectCallback(currentServerIP);
+                    }
+                }
+                else {
+                    log("Reconnection attempt " + std::to_string(reconnectionAttempts) + " failed");
                 }
             }
             else {
-                log("Maximum reconnection attempts reached. Connection to server " + currentServerIP + " is permanently lost");
+                log("Maximum reconnection attempts reached. Connection to server " +
+                    currentServerIP + " is completely lost");
                 log("Please reconnect manually with new server IP");
 
                 // Reset connection-related variables
                 currentServerIP.clear();
                 currentPort.clear();
                 reconnectionAttempts = 0;
+                hasLoggedConnectionLost = false;
 
                 // Stop the connection checker
                 shouldCheckConnection = false;
                 break;
             }
         }
+        else {
+            hasLoggedConnectionLost = false;
+        }
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
+}
+
+// Sets the callback for reconnection events
+void Client::setReconnectCallback(std::function<void(const std::string&)> callback) {
+    reconnectCallback = callback;
 }

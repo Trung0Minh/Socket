@@ -1,5 +1,4 @@
-﻿// ClientSocket.cpp
-#include "ClientSocket.h"
+﻿#include "ClientSocket.h"
 #include <iostream>
 
 ClientSocket::ClientSocket()
@@ -8,10 +7,14 @@ ClientSocket::ClientSocket()
     , ptr(nullptr)
 {
     ZeroMemory(&hints, sizeof(hints));
+    if (!initializeWinsock()) {
+        throw std::runtime_error("Failed to initialize Winsock");
+    }
 }
 
 ClientSocket::~ClientSocket() {
     Close();
+    WSACleanup();
 }
 
 bool ClientSocket::initializeWinsock() {
@@ -36,7 +39,6 @@ bool ClientSocket::createSocket(const char* address, const char* port, int famil
     int iResult = getaddrinfo(address, port, &hints, &result);
     if (iResult != 0) {
         printError("getaddrinfo failed");
-        WSACleanup();
         return false;
     }
 
@@ -51,15 +53,13 @@ bool ClientSocket::createSocket(const char* address, const char* port, int famil
     }
 
     if (connectSocket == INVALID_SOCKET) {
-        freeaddrinfo(result);
-        WSACleanup();
+        freeAddrInfo();
         return false;
     }
 
     return true;
 }
 
-// Trong hàm connectToServer()
 bool ClientSocket::connectToServer() {
     if (connectSocket == INVALID_SOCKET) {
         return false;
@@ -79,11 +79,11 @@ bool ClientSocket::connectToServer() {
         printError("Connection failed");
         closesocket(connectSocket);
         connectSocket = INVALID_SOCKET;
-        freeaddrinfo(result);
+        freeAddrInfo();
         return false;
     }
 
-    freeaddrinfo(result);
+    freeAddrInfo();
     return true;
 }
 
@@ -93,9 +93,6 @@ bool ClientSocket::Connect(const char* address, const char* port, int family) {
         Close();
     }
 
-    if (!initializeWinsock()) {
-        return false;
-    }
     if (!createSocket(address, port, family)) {
         return false;
     }
@@ -109,14 +106,13 @@ bool ClientSocket::Connect(const char* address, const char* port, int family) {
 }
 
 bool ClientSocket::Close() {
-    bool success = true;
     if (connectSocket != INVALID_SOCKET) {
         shutdown(connectSocket, SD_BOTH);
         closesocket(connectSocket);
         connectSocket = INVALID_SOCKET;
     }
-    WSACleanup();
-    return success;
+    freeAddrInfo();
+    return true;
 }
 
 bool ClientSocket::IsConnected() const {
@@ -207,7 +203,6 @@ void ClientSocket::setNonBlocking(bool nonBlocking) {
     }
 }
 
-// Đơn giản hóa hàm checkConnection
 bool ClientSocket::checkConnection() {
     if (connectSocket == INVALID_SOCKET) {
         return false;
@@ -252,4 +247,12 @@ bool ClientSocket::checkConnection() {
     }
 
     return FD_ISSET(connectSocket, &writeSet);
+}
+
+void ClientSocket::freeAddrInfo() {
+    if (result != nullptr) {
+        freeaddrinfo(result);
+        result = nullptr;
+        ptr = nullptr;
+    }
 }

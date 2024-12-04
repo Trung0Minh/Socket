@@ -1,4 +1,3 @@
-// returnToken.h
 #pragma once
 #include <iostream>
 #include <fstream>
@@ -6,7 +5,7 @@
 #include <ctime>
 #include <curl/curl.h>
 #include "json.hpp"
-#include "config.h"
+#include "Config.h"
 
 using json = nlohmann::json;
 
@@ -15,17 +14,17 @@ private:
     json token_data;
     Config* config;
 
+    // Callback function for CURL to write data
+    static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp);
+
+    // Token validity checks
     bool isTokenExpired();
     bool refreshToken();
 
+    // Token loading and utility functions
+    bool loadTokenFile();
+
 public:
     TokenManager() : config(Config::getInstance()) {}
-    // Callback function for CURL to write data
-    static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp);
-    bool loadTokenFile();
     std::string getValidAccessToken();
-    void printTokenData();
 };
-
-
-

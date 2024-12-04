@@ -1,5 +1,5 @@
-// config.cpp
-#include "config.h"
+// Config.cpp
+#include "Config.h"
 
 Config* Config::instance = nullptr;
 
