@@ -7,6 +7,10 @@ ClientSocket::ClientSocket()
     , ptr(nullptr)
 {
     ZeroMemory(&hints, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
     if (!initializeWinsock()) {
         throw std::runtime_error("Failed to initialize Winsock");
     }
@@ -20,7 +24,7 @@ ClientSocket::~ClientSocket() {
 bool ClientSocket::initializeWinsock() {
     int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (iResult != 0) {
-        printError("WSAStartup failed");
+        logError("WSAStartup failed");
         return false;
     }
     return true;
@@ -33,12 +37,9 @@ bool ClientSocket::createSocket(const char* address, const char* port, int famil
     }
 
     hints.ai_family = family;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-
     int iResult = getaddrinfo(address, port, &hints, &result);
     if (iResult != 0) {
-        printError("getaddrinfo failed");
+        logError("getaddrinfo failed");
         return false;
     }
 
@@ -46,7 +47,7 @@ bool ClientSocket::createSocket(const char* address, const char* port, int famil
     for (ptr = result; ptr != nullptr; ptr = ptr->ai_next) {
         connectSocket = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
         if (connectSocket == INVALID_SOCKET) {
-            printError("Socket creation failed");
+            logError("Socket creation failed");
             continue;
         }
         break;
@@ -76,7 +77,7 @@ bool ClientSocket::connectToServer() {
 
     int iResult = connect(connectSocket, ptr->ai_addr, (int)ptr->ai_addrlen);
     if (iResult == SOCKET_ERROR) {
-        printError("Connection failed");
+        logError("Connection failed");
         closesocket(connectSocket);
         connectSocket = INVALID_SOCKET;
         freeAddrInfo();
@@ -143,7 +144,7 @@ bool ClientSocket::Send(const char* data, int length) {
                 }
                 continue;
             }
-            printError("Send failed");
+            logError("Send failed");
             Close();
             return false;
         }
@@ -188,7 +189,7 @@ int ClientSocket::Receive(char* buffer, int bufferSize) {
         }
 
         // Other errors indicate connection problem
-        printError("Receive failed");
+        logError("Receive failed");
         Close();
         return -1;
     }
@@ -254,5 +255,14 @@ void ClientSocket::freeAddrInfo() {
         freeaddrinfo(result);
         result = nullptr;
         ptr = nullptr;
+    }
+}
+
+void ClientSocket::logError(const char* message) {
+    if (logCallback) {
+        logCallback(std::string(message) + " Error: " + std::to_string(WSAGetLastError()));
+    }
+    else {
+        std::cerr << message << " Error: " << WSAGetLastError() << std::endl;
     }
 }

@@ -108,6 +108,7 @@ bool EmailMonitor::checkNewEmails() {
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L); // Set timeout to 30 seconds
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
 
     CURLcode res = curl_easy_perform(curl);
@@ -115,7 +116,7 @@ bool EmailMonitor::checkNewEmails() {
     curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
-        log("Error: Failed to perform CURL request");
+        log("Error: Failed to perform CURL request: " + std::string(curl_easy_strerror(res)));
         return false;
     }
 
@@ -131,7 +132,7 @@ bool EmailMonitor::checkNewEmails() {
         }
     }
     catch (const json::exception& e) {
-        log("Error: Failed to parse JSON response");
+        log("Error: Failed to parse JSON response: " + std::string(e.what()));
         return false;
     }
 
@@ -166,20 +167,22 @@ std::string EmailMonitor::getEmailContent(const std::string& emailId) {
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L); // Set timeout to 30 seconds
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
         CURLcode res = curl_easy_perform(curl);
         long http_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 
         if (res != CURLE_OK) {
+            log("Error: Failed to perform CURL request: " + std::string(curl_easy_strerror(res)));
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
             if (http_code == 401) {
                 log("Token might be expired, retrying...");
                 retryCount++;
                 continue;
             }
-            log("Error: Failed to perform CURL request");
             return "";
         }
 
@@ -187,6 +190,8 @@ std::string EmailMonitor::getEmailContent(const std::string& emailId) {
         curl_easy_cleanup(curl);
         return readBuffer;
     }
+
+    log("Error: Maximum retries exceeded for getting email content");
     return "";
 }
 
@@ -221,6 +226,7 @@ bool EmailMonitor::markEmailAsRead(const std::string& emailId) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonStr.c_str());
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L); // Set timeout to 30 seconds
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
@@ -228,7 +234,12 @@ bool EmailMonitor::markEmailAsRead(const std::string& emailId) {
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
-    return (res == CURLE_OK);
+    if (res != CURLE_OK) {
+        log("Error: Failed to mark email as read: " + std::string(curl_easy_strerror(res)));
+        return false;
+    }
+
+    return true;
 }
 
 std::string EmailMonitor::trim(const std::string& str) {

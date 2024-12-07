@@ -47,10 +47,12 @@ private:
     // Helper Functions
     bool ValidateIP(const wxString& ip);
     void UpdateLogArea();
-    void SetupClientCallbacks();
     void UpdateServerList();
     bool IsServerConnected(const wxString& ip);
     void HandleServerDisconnect(const wxString& ip);
+
+    wxStaticBox* serverListBox;
+    wxStaticBox* connectionBox;
 
 public:
     // Constructor and Destructor

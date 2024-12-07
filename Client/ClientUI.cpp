@@ -7,41 +7,21 @@ ClientUI::ClientUI()
     : wxFrame(nullptr, wxID_ANY, "Email Client", wxDefaultPosition, wxSize(800, 600))
 {
     client = new Client();
+    // Set log callback ngay sau khi tạo client
+    client->setLogCallback([this](const std::string& message) {
+        AddLogMessage(wxString::FromUTF8(message));
+        });
+
     isCompleted = false;
 
     CreateControls();
     LayoutControls();
     BindEvents();
-    SetupClientCallbacks();
 
     updateTimer = new wxTimer(this);
     updateTimer->Start(100);
 
     Center();
-}
-
-// Sets up client callbacks for logging and reconnecting
-void ClientUI::SetupClientCallbacks() {
-    client->setLogCallback([this](const std::string& message) {
-        wxString wxMessage(message);
-        AddLogMessage(wxMessage);
-
-        // Handle disconnection messages
-        if (wxMessage.Contains("Disconnected") || wxMessage.Contains("Connection lost")) {
-            HandleServerDisconnect(wxMessage.AfterLast(' ').BeforeLast('.'));
-        }
-        });
-
-    // Handle server reconnection
-    client->setReconnectCallback([this](const std::string& ip) {
-        CallAfter([this, ip]() {
-            wxString wxIP(ip);
-            if (!IsServerConnected(wxIP)) {
-                connectedServers.push_back(std::make_pair(wxIP, true));
-                UpdateServerList();
-            }
-            });
-        });
 }
 
 // Destructor
@@ -54,39 +34,59 @@ ClientUI::~ClientUI() {
 void ClientUI::CreateControls() {
     mainPanel = new wxPanel(this);
 
-    // Thêm cờ wxTE_PROCESS_ENTER
-    serverIpInput = new wxTextCtrl(mainPanel, wxID_ANY, "Enter server IP", wxDefaultPosition, wxSize(200, -1), wxTE_PROCESS_ENTER);
-    connectButton = new wxButton(mainPanel, wxID_ANY, "Connect");
-    completeButton = new wxButton(mainPanel, wxID_ANY, "Complete");
-    completeButton->Enable(false);
-
-    serverList = new wxListCtrl(mainPanel, wxID_ANY, wxDefaultPosition, wxSize(-1, 150), wxLC_REPORT | wxLC_SINGLE_SEL | wxLC_HRULES | wxLC_VRULES);
+    // Server List Box
+    serverListBox = new wxStaticBox(mainPanel, wxID_ANY, "Connected Servers");
+    serverList = new wxListCtrl(serverListBox, wxID_ANY, wxDefaultPosition, wxSize(300, 150),
+        wxLC_REPORT | wxLC_SINGLE_SEL | wxLC_HRULES | wxLC_VRULES);
     serverList->InsertColumn(0, "Server IP", wxLIST_FORMAT_LEFT, 150);
-    serverList->InsertColumn(1, "Status", wxLIST_FORMAT_LEFT, 100);
-
-    disconnectButton = new wxButton(mainPanel, wxID_ANY, "Disconnect Selected");
+    serverList->InsertColumn(1, "Port", wxLIST_FORMAT_LEFT, 100);
+    disconnectButton = new wxButton(serverListBox, wxID_ANY, "Disconnect server");
     disconnectButton->Enable(false);
 
-    logArea = new wxTextCtrl(mainPanel, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH);
+    // Connection Box
+    connectionBox = new wxStaticBox(mainPanel, wxID_ANY, "Enter IP address");
+    serverIpInput = new wxTextCtrl(connectionBox, wxID_ANY, "",
+        wxDefaultPosition, wxSize(200, -1), wxTE_PROCESS_ENTER);
+    serverIpInput->SetHint("Enter server IP");
+    connectButton = new wxButton(connectionBox, wxID_ANY, "Connect");
+    completeButton = new wxButton(connectionBox, wxID_ANY, "Complete");
+    completeButton->Enable(false);
+
+    // Log Area
+    logArea = new wxTextCtrl(mainPanel, wxID_ANY, "",
+        wxDefaultPosition, wxDefaultSize,
+        wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH);
     wxFont logFont(10, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
     logArea->SetFont(logFont);
 }
 
-// Arranges UI controls using sizers
 void ClientUI::LayoutControls() {
     mainSizer = new wxBoxSizer(wxVERTICAL);
-    connectionSizer = new wxBoxSizer(wxHORIZONTAL);
-    serverListSizer = new wxBoxSizer(wxHORIZONTAL);
+    wxBoxSizer* topSizer = new wxBoxSizer(wxHORIZONTAL);
 
-    connectionSizer->Add(serverIpInput, 1, wxALL | wxEXPAND, 5);
-    connectionSizer->Add(connectButton, 0, wxALL, 5);
-    connectionSizer->Add(completeButton, 0, wxALL, 5);
-
+    // Server List Layout
+    wxStaticBoxSizer* serverListSizer = new wxStaticBoxSizer(serverListBox, wxVERTICAL);
     serverListSizer->Add(serverList, 1, wxEXPAND | wxALL, 5);
-    serverListSizer->Add(disconnectButton, 0, wxALL, 5);
+    serverListSizer->Add(disconnectButton, 0, wxALL | wxALIGN_CENTER, 5);
 
-    mainSizer->Add(connectionSizer, 0, wxEXPAND | wxALL, 5);
-    mainSizer->Add(serverListSizer, 0, wxEXPAND | wxALL, 5);
+    // Connection Controls Layout
+    wxStaticBoxSizer* connectionSizer = new wxStaticBoxSizer(connectionBox, wxVERTICAL);
+    wxBoxSizer* inputSizer = new wxBoxSizer(wxHORIZONTAL);
+    inputSizer->Add(serverIpInput, 1, wxALL | wxEXPAND, 5);
+
+    wxBoxSizer* buttonSizer = new wxBoxSizer(wxHORIZONTAL);
+    buttonSizer->Add(connectButton, 0, wxALL, 5);
+    buttonSizer->Add(completeButton, 0, wxALL, 5);
+
+    connectionSizer->Add(inputSizer, 0, wxEXPAND);
+    connectionSizer->Add(buttonSizer, 0, wxALIGN_RIGHT);
+
+    // Arrange top section
+    topSizer->Add(serverListSizer, 1, wxEXPAND | wxALL, 5);
+    topSizer->Add(connectionSizer, 1, wxEXPAND | wxALL, 5);
+
+    // Main layout
+    mainSizer->Add(topSizer, 0, wxEXPAND | wxALL, 5);
     mainSizer->Add(logArea, 1, wxEXPAND | wxALL, 5);
 
     mainPanel->SetSizer(mainSizer);
@@ -131,16 +131,16 @@ void ClientUI::OnConnectClick(wxCommandEvent& event) {
         serverIpInput->SetHint("Enter another server IP or click Complete");
     }
     else {
-        AddLogMessage("Failed to connect to " + ip);
+        // Không cần AddLogMessage ở đây vì Client đã tự log thông báo lỗi
         wxMessageBox("Connection failed! Please try again.", "Error", wxOK | wxICON_ERROR);
     }
 }
 
-// Handles complete button click event
 void ClientUI::OnCompleteClick(wxCommandEvent& event) {
     if (!connectedServers.empty()) {
         isCompleted = true;
         EnableConnectionControls(false);
+        // UI-specific log message có thể giữ lại
         AddLogMessage("Connection setup completed. Starting client...");
         wxString firstServerIP = connectedServers[0].first;
         client->start(firstServerIP.ToStdString());
@@ -149,7 +149,8 @@ void ClientUI::OnCompleteClick(wxCommandEvent& event) {
 
 // Handles server disconnection
 void ClientUI::HandleServerDisconnect(const wxString& ip) {
-    auto it = std::find_if(connectedServers.begin(), connectedServers.end(), [&ip](const auto& pair) { return pair.first == ip; });
+    auto it = std::find_if(connectedServers.begin(), connectedServers.end(),
+        [&ip](const auto& pair) { return pair.first == ip; });
 
     if (it != connectedServers.end()) {
         connectedServers.erase(it);
@@ -170,9 +171,10 @@ void ClientUI::OnDisconnectClick(wxCommandEvent& event) {
     if (selectedIndex != -1) {
         wxString ip = serverList->GetItemText(selectedIndex);
         client->disconnect();
-        AddLogMessage("Disconnected from " + ip);
+        // Không cần AddLogMessage ở đây vì Client sẽ log việc disconnect
 
-        auto it = std::find_if(connectedServers.begin(), connectedServers.end(), [&ip](const auto& pair) { return pair.first == ip; });
+        auto it = std::find_if(connectedServers.begin(), connectedServers.end(),
+            [&ip](const auto& pair) { return pair.first == ip; });
         if (it != connectedServers.end()) {
             connectedServers.erase(it);
         }
@@ -214,11 +216,13 @@ void ClientUI::AddLogMessage(const wxString& message) {
 // Updates the log area with messages from the queue
 void ClientUI::UpdateLogArea() {
     std::lock_guard<std::mutex> lock(logMutex);
-    for (const wxString& message : logMessages) {
-        logArea->AppendText(message + "\n");
+    if (!logMessages.empty()) {
+        for (const wxString& message : logMessages) {
+            logArea->AppendText(message + "\n");
+        }
         logArea->ShowPosition(logArea->GetLastPosition());
+        logMessages.clear();
     }
-    logMessages.clear();
 }
 
 // Enables or disables connection controls
@@ -236,7 +240,14 @@ void ClientUI::UpdateServerList() {
     for (size_t i = 0; i < connectedServers.size(); ++i) {
         const auto& server = connectedServers[i];
         long index = serverList->InsertItem(i, server.first);
-        serverList->SetItem(index, 1, server.second ? "Connected" : "Disconnected");
+
+        int port = 54000 + static_cast<int>(i);
+        if (port >= 54000 && port <= 65535) {
+            serverList->SetItem(index, 1, wxString::Format(wxT("%d"), port));
+        }
+        else {
+            serverList->SetItem(index, 1, wxT("Invalid Port"));
+        }
     }
 
     serverList->Thaw();
@@ -245,5 +256,6 @@ void ClientUI::UpdateServerList() {
 
 // Checks if a server is already connected
 bool ClientUI::IsServerConnected(const wxString& ip) {
-    return std::any_of(connectedServers.begin(), connectedServers.end(), [&ip](const auto& pair) { return pair.first == ip; });
+    return std::any_of(connectedServers.begin(), connectedServers.end(),
+        [&ip](const auto& pair) { return pair.first == ip; });
 }

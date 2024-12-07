@@ -1,21 +1,48 @@
 ﻿// main.cpp
 #include "ClientUI.h"
+#include "Auth.h"
 #include <wx/wx.h>
 
-// Định nghĩa lớp Application
 class ClientApplication : public wxApp {
 public:
     virtual bool OnInit() {
-        // Tạo frame chính của ứng dụng
-        ClientUI* frame = new ClientUI();
+        // Khởi tạo Auth
+        Auth auth("credentials.json", "token.json");
 
-        // Hiển thị frame
-        frame->Show(true);
+        try {
+            // Kiểm tra xem đã authorize chưa
+            if (!auth.authenticate()) {
+                if (auth.isAuthenticationCancelled()) {
+                    // Người dùng đã chủ động hủy xác thực
+                    return false;  // Thoát ứng dụng một cách "êm đẹp"
+                }
+                else {
+                    wxMessageBox("Authorization failed!", "Error", wxOK | wxICON_ERROR);
+                    return false;
+                }
+            }
 
-        // Đặt frame này là window chính của ứng dụng
-        SetTopWindow(frame);
+            // Xác thực thành công, tạo frame chính của ứng dụng
+            ClientUI* frame = new ClientUI();
 
-        return true;
+            // Hiển thị frame
+            frame->Show(true);
+
+            // Đặt frame này là window chính của ứng dụng
+            SetTopWindow(frame);
+
+            return true;
+
+        }
+        catch (const std::exception& e) {
+            // Xử lý các lỗi khác có thể xảy ra trong quá trình xác thực
+            wxMessageBox(
+                wxString::Format("Authentication error: %s", e.what()),
+                "Error",
+                wxOK | wxICON_ERROR
+            );
+            return false;
+        }
     }
 };
 

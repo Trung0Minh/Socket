@@ -2,7 +2,6 @@
 #include <string>
 #include <memory>
 #include <functional>
-#include <thread>
 #include <mutex>
 #include "EmailSender.h"
 #include "ClientSocket.h"
@@ -13,7 +12,6 @@ class Client {
 private:
     // Logging callback function
     std::function<void(const std::string&)> logCallback;
-    std::function<void(const std::string&)> reconnectCallback;
 
     // Network related members
     std::unique_ptr<ClientSocket> clientSocket;
@@ -21,13 +19,6 @@ private:
     std::string currentPort;
     std::mutex socketMutex;
     static const int DEFAULT_BUFLEN = 4096;
-
-    // Connection checking related members
-    std::thread connectionCheckerThread;
-    bool shouldCheckConnection;
-    static const int MAX_RECONNECTION_ATTEMPTS = 3;
-    int reconnectionAttempts;
-    bool needReconnection;
 
     // Email related members
     EmailSender emailSender;
@@ -39,9 +30,6 @@ private:
 
     // Helper function for logging
     void log(const std::string& message);
-
-    // Connection checking loop function
-    void connectionCheckerLoop();
 
 public:
     // Constructor and Destructor
@@ -81,7 +69,4 @@ public:
     bool start(const std::string& serverIP);
     void stop();
     bool isRunning() const { return running; }
-
-    // Callback for reconnection events
-    void setReconnectCallback(std::function<void(const std::string&)> callback);
 };

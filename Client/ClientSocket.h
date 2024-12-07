@@ -4,7 +4,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <string>
-#include <iostream>
+#include <functional>
 
 #pragma comment (lib, "Ws2_32.lib")
 #pragma comment (lib, "Mswsock.lib")
@@ -17,25 +17,25 @@ private:
     struct addrinfo* result;
     struct addrinfo* ptr;
     struct addrinfo hints;
-    std::string serverName;
     static const int DEFAULT_BUFLEN = 4096;
     static const int SOCKET_TIMEOUT = 5000; // 5 seconds
     static const int MAX_RETRY_COUNT = 3;
     static const int KEEPALIVE_TIME = 10000;    // 10 seconds
     static const int KEEPALIVE_INTERVAL = 1000; // 1 second
 
+    std::function<void(const std::string&)> logCallback;
+
     bool initializeWinsock();
     bool createSocket(const char* address, const char* port, int family);
     bool connectToServer();
     void freeAddrInfo();
-    void printError(const char* message) {
-        std::cerr << message << " Error: " << WSAGetLastError() << std::endl;
-    }
+    void logError(const char* message);
 
 public:
     ClientSocket();
     ~ClientSocket();
 
+    void setLogCallback(std::function<void(const std::string&)> callback) { logCallback = callback; }
     bool Connect(const char* address, const char* port, int family);
     bool Close();
     bool IsConnected() const;
@@ -43,6 +43,5 @@ public:
     int Receive(char* buffer, int bufferSize);
     SOCKET GetSocket() const { return connectSocket; }
     void setNonBlocking(bool nonBlocking);
-
     bool checkConnection();
 };
