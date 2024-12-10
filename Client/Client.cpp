@@ -9,6 +9,8 @@ Client::Client() :
     emailMonitor(std::make_unique<EmailMonitor>()),
     emailSender(),
     running(false),
+    connectionCheckRunning(false),
+    connectionLostLogged(false),
     logCallback(nullptr) {
 
     emailMonitor->setCommandExecutor(
@@ -140,7 +142,7 @@ bool Client::receiveData(std::string& response) {
     }
 
     char buffer[DEFAULT_BUFLEN];
-    int bytesReceived = clientSocket->Receive(buffer, DEFAULT_BUFLEN);
+    int bytesReceived = clientSocket->Receive(buffer);
 
     if (bytesReceived > 0) {
         response.assign(buffer, bytesReceived);
@@ -148,6 +150,7 @@ bool Client::receiveData(std::string& response) {
     }
     else if (bytesReceived == 0) {
         log("No data received (timeout)");
+        disconnect();
         return false;
     }
     else {
@@ -200,7 +203,7 @@ bool Client::sendEmail(const std::string& to,
     const std::string& attachmentName) {
 
     log("Sending email to: " + to);
-    bool success = emailSender.sendEmail(to, subject, textContent, attachment, attachmentName);
+    bool success = emailSender.sendEmail(to, subject, textContent);
 
     if (success) {
         log("Email sent successfully");
@@ -230,8 +233,37 @@ bool Client::start(const std::string& serverIP) {
 void Client::stop() {
     if (running) {
         running = false;
+        connectionCheckRunning = false;
+        if (connectionCheckThread.joinable()) {
+            connectionCheckThread.join();
+        }
         stopEmailMonitor();
         disconnect();
         log("Client stopped successfully");
+    }
+}
+
+void Client::checkConnection() {
+    const int CHECK_INTERVAL = 1; // Check every 1 second
+
+    while (connectionCheckRunning) {
+        if (isConnected()) {
+            // Optionally, you can send a keep-alive message to the server here
+            // For example: sendData("PING");
+            connectionLostLogged = false; // Đặt lại biến trạng thái khi kết nối được khôi phục
+            std::this_thread::sleep_for(std::chrono::seconds(CHECK_INTERVAL));
+        }
+        else {
+            if (!connectionLostLogged) {
+                //log("Connection to server lost");
+                connectionLostLogged = true; // Đặt biến trạng thái khi kết nối bị mất
+                // Thông báo cho ClientUI
+                if (logCallback) {
+                    logCallback("ConnectionLost:" + currentServerIP);
+                }
+            }
+            disconnect();
+            std::this_thread::sleep_for(std::chrono::seconds(CHECK_INTERVAL));
+        }
     }
 }

@@ -1,5 +1,7 @@
 ﻿#include "ClientSocket.h"
 #include <iostream>
+#include <vector>
+#include <algorithm>
 
 ClientSocket::ClientSocket()
     : connectSocket(INVALID_SOCKET)
@@ -155,45 +157,50 @@ bool ClientSocket::Send(const char* data, int length) {
     return totalSent == length;
 }
 
-int ClientSocket::Receive(char* buffer, int bufferSize) {
+int ClientSocket::Receive(char* buffer) {
     if (!checkConnection()) return -1;
 
-    int totalReceived = 0;
-    int retryCount = 0;
-
-    while (retryCount < MAX_RETRY_COUNT) {
-        int result = recv(connectSocket, buffer + totalReceived,
-            bufferSize - totalReceived, 0);
-
-        if (result > 0) {
-            totalReceived += result;
-            if (totalReceived >= bufferSize) break;
-            continue;
-        }
-
-        if (result == 0) {
-            // Connection closed by server
-            Close();
-            return totalReceived > 0 ? totalReceived : -1;
-        }
-
-        int error = WSAGetLastError();
-        if (error == WSAEWOULDBLOCK) {
-            Sleep(100);
-            retryCount++;
-            if (!checkConnection()) {
-                Close();
-                return -1;
-            }
-            continue;
-        }
-
-        // Other errors indicate connection problem
-        logError("Receive failed");
-        Close();
+    // Nhận header (giả sử header không quá 1024 bytes)
+    char headerBuffer[1024];
+    int bytesReceived = recv(connectSocket, headerBuffer, sizeof(headerBuffer), 0);
+    if (bytesReceived == 0 || bytesReceived == SOCKET_ERROR) {
+        logError("Failed to receive header");
         return -1;
     }
 
+    // Phân tích header để lấy kích thước dữ liệu chính
+    std::string header(headerBuffer, bytesReceived);
+    size_t sizePos = header.find("SIZE:");
+    if (sizePos == std::string::npos) {
+        logError("Invalid header format");
+        return -1;
+    }
+
+    sizePos += 5;  // Skip "SIZE:"
+    size_t endSizePos = header.find('\n', sizePos);
+    if (endSizePos == std::string::npos) {
+        logError("Invalid header format");
+        return -1;
+    }
+
+    std::string sizeStr = header.substr(sizePos, endSizePos - sizePos);
+    int dataSize = std::stoi(sizeStr);
+
+    // Nhận dữ liệu chính theo từng chunk
+    std::vector<char> dataBuffer(dataSize);
+    int totalReceived = 0;
+    char chunkBuffer[1024];
+
+    while (totalReceived < dataSize) {
+        int bytesToReceive = min(1024, dataSize - totalReceived);
+        bytesReceived = recv(connectSocket, chunkBuffer, bytesToReceive, 0);
+        if (bytesReceived == 0 || bytesReceived == SOCKET_ERROR) {
+            logError("Failed to receive data");
+            return -1;
+        }
+        std::memcpy(dataBuffer.data() + totalReceived, chunkBuffer, bytesReceived);
+        totalReceived += bytesReceived;
+    }
     return totalReceived;
 }
 

@@ -1,4 +1,3 @@
-// EmailSender.cpp
 #include "EmailSender.h"
 #include <sstream>
 #include <iostream>
@@ -18,7 +17,9 @@ std::string EmailSender::base64_encode(const std::string& str) {
 }
 
 // Creates the email headers with specified parameters
-std::string EmailSender::createEmailHeaders(const std::string& to, const std::string& subject, const std::string& boundary) {
+std::string EmailSender::createEmailHeaders(const std::string& to,
+    const std::string& subject,
+    const std::string& boundary) {
     std::stringstream headers;
     headers << "From: me\r\n"
         << "To: " << to << "\r\n"
@@ -38,7 +39,9 @@ std::string EmailSender::createEmailBody(const std::string& textContent, const s
 }
 
 // Creates the attachment part with specified attachment data and name
-std::string EmailSender::createAttachmentPart(const std::vector<uint8_t>& attachment, const std::string& attachmentName, const std::string& boundary) {
+std::string EmailSender::createAttachmentPart(const std::vector<uint8_t>& attachment,
+    const std::string& attachmentName,
+    const std::string& boundary) {
     if (attachment.empty() || attachmentName.empty()) {
         return "";
     }
@@ -53,7 +56,11 @@ std::string EmailSender::createAttachmentPart(const std::vector<uint8_t>& attach
 }
 
 // Creates the raw email by combining headers, body, and attachment parts
-std::string EmailSender::createRawEmail(const std::string& to, const std::string& subject, const std::string& textContent, const std::vector<uint8_t>& attachment, const std::string& attachmentName) {
+std::string EmailSender::createRawEmail(const std::string& to,
+    const std::string& subject,
+    const std::string& textContent,
+    const std::vector<uint8_t>& attachment,
+    const std::string& attachmentName) {
     std::string boundary = "boundary_" + std::to_string(std::time(nullptr));
     std::stringstream email;
 
@@ -66,34 +73,70 @@ std::string EmailSender::createRawEmail(const std::string& to, const std::string
     return base64_encode(email.str());
 }
 
-// Reads file content into a vector and extracts the file name
-std::vector<uint8_t> EmailSender::readFile(const std::string& filePath, std::string& fileName) {
-    std::ifstream file(filePath, std::ios::binary);
-    if (!file) {
-        throw std::runtime_error("Cannot open file: " + filePath);
+// Function for parsing header from textContent
+bool EmailSender::parseHeader(const std::string& textContent, std::string& type, std::string& body, std::string& filename, std::string& mimetype) {
+    size_t headerEndPos = textContent.find('\n');
+    if (headerEndPos == std::string::npos) {
+        return false;
     }
 
-    // Extract filename from path
-    size_t lastSlash = filePath.find_last_of("/\\");
-    fileName = (lastSlash != std::string::npos) ? filePath.substr(lastSlash + 1) : filePath;
+    std::string header = textContent.substr(0, headerEndPos);
+    body = textContent.substr(headerEndPos + 1);
 
-    return std::vector<uint8_t>(
-        std::istreambuf_iterator<char>(file),
-        std::istreambuf_iterator<char>()
-    );
+    size_t typePos = header.find("TYPE:");
+    size_t sizePos = header.find("SIZE:");
+    size_t filenamePos = header.find("FILENAME:");
+    size_t mimetypePos = header.find("MIMETYPE:");
+
+    if (typePos == std::string::npos || sizePos == std::string::npos) {
+        return false;
+    }
+
+    typePos += 5;  // Skip "TYPE:"
+    sizePos += 5;  // Skip "SIZE:"
+
+    size_t endTypePos = header.find('|', typePos);
+    size_t endSizePos = header.find('|', sizePos);
+
+    if (endTypePos == std::string::npos || endSizePos == std::string::npos) {
+        return false;
+    }
+
+    type = header.substr(typePos, endTypePos - typePos);
+    std::string sizeStr = header.substr(sizePos, endSizePos - sizePos);
+    int dataSize = std::stoi(sizeStr);
+
+    if (body.size() != static_cast<size_t>(dataSize)) {
+        return false;
+    }
+
+    if (filenamePos != std::string::npos && mimetypePos != std::string::npos) {
+        filenamePos += 9;  // Skip "FILENAME:"
+        mimetypePos += 9;  // Skip "MIMETYPE:"
+
+        size_t endFilenamePos = header.find('|', filenamePos);
+        size_t endMimetypePos = header.find('\n', mimetypePos);
+
+        if (endFilenamePos == std::string::npos || endMimetypePos == std::string::npos) {
+            return false;
+        }
+
+        filename = header.substr(filenamePos, endFilenamePos - filenamePos);
+        mimetype = header.substr(mimetypePos, endMimetypePos - mimetypePos);
+    }
+
+    return true;
 }
 
 // Sends the email request using cURL with the raw email content
 bool EmailSender::sendEmailRequest(const std::string& rawEmail) {
     std::string accessToken = tokenManager.getValidAccessToken();
     if (accessToken.empty()) {
-        std::cerr << "Failed to get valid access token" << std::endl;
         return false;
     }
 
     CURL* curl = curl_easy_init();
     if (!curl) {
-        std::cerr << "Failed to initialize CURL" << std::endl;
         return false;
     }
 
@@ -116,11 +159,6 @@ bool EmailSender::sendEmailRequest(const std::string& rawEmail) {
     CURLcode res = curl_easy_perform(curl);
     bool success = (res == CURLE_OK);
 
-    if (!success) {
-        std::cerr << "Failed to send email: " << curl_easy_strerror(res) << std::endl;
-        std::cerr << "Response: " << response << std::endl;
-    }
-
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
@@ -130,15 +168,35 @@ bool EmailSender::sendEmailRequest(const std::string& rawEmail) {
 // Public function to send an email with specified parameters
 bool EmailSender::sendEmail(const std::string& to,
     const std::string& subject,
-    const std::string& textContent,
-    const std::vector<uint8_t>& attachment,
-    const std::string& attachmentName) {
+    const std::string& textContent) {
     try {
-        std::string rawEmail = createRawEmail(to, subject, textContent, attachment, attachmentName);
+        std::string type;
+        std::string body;
+        std::string filename;
+        std::string mimetype;
+
+        if (!parseHeader(textContent, type, body, filename, mimetype)) {
+            std::cerr << "Invalid header format" << std::endl;
+            return false;
+        }
+
+        std::string rawEmail;
+        if (type == "text") {
+            rawEmail = createRawEmail(to, subject, body);
+        }
+        else if (type == "file") {
+            std::vector<uint8_t> attachment(body.begin(), body.end());
+            rawEmail = createRawEmail(to, subject, "", attachment, filename);
+        }
+        else {
+            std::cerr << "Unsupported TYPE in header" << std::endl;
+            return false;
+        }
+
         return sendEmailRequest(rawEmail);
     }
     catch (const std::exception& e) {
-        std::cerr << "Error in sendEmail: " << e.what() << std::endl;
+        std::cerr << "Error: " << e.what() << std::endl;
         return false;
     }
 }

@@ -8,8 +8,6 @@ class Auth {
 public:
     Auth(const std::string& credentialsFile, const std::string& tokenFile);
     bool authenticate();
-    std::string getAccessToken();
-    std::string getRefreshToken();
     bool hasValidToken();
     std::string getAuthUrl() const;  // Method mới để lấy URL xác thực
     void processAuthorizationCode(const std::string& authCode);
@@ -17,12 +15,12 @@ public:
 
 private:
     void requestAuthorizationCode();
+    void saveToken(const nlohmann::json& token);
+    bool authenticationCancelled = false;
+
     nlohmann::json exchangeAuthorizationCodeForTokens(const std::string& authCode);
     nlohmann::json loadCredentials();
     nlohmann::json loadToken();
-    void saveToken(const nlohmann::json& token);
-    bool authenticationCancelled = false;
-    
 
     std::string credentialsFile;
     std::string tokenFile;

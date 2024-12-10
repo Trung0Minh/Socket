@@ -22,7 +22,6 @@ bool TokenManager::isTokenExpired() {
         return (now - token_created) >= expires_in;
     }
     catch (const std::exception& e) {
-        std::cerr << "Error in isTokenExpired: " << e.what() << std::endl;
         return true;
     }
 }
@@ -32,7 +31,6 @@ bool TokenManager::refreshToken() {
     try {
         CURL* curl = curl_easy_init();
         if (!curl) {
-            std::cerr << "Failed to initialize CURL" << std::endl;
             return false;
         }
 
@@ -67,12 +65,8 @@ bool TokenManager::refreshToken() {
                 file.close();
             }
             else {
-                std::cerr << "Failed to open file for writing: " << config->TOKEN_FILE << std::endl;
                 success = false;
             }
-        }
-        else {
-            std::cerr << "Failed to refresh token: " << curl_easy_strerror(res) << std::endl;
         }
 
         // Cleanup
@@ -81,7 +75,6 @@ bool TokenManager::refreshToken() {
         return success;
     }
     catch (const std::exception& e) {
-        std::cerr << "Error in refreshToken: " << e.what() << std::endl;
         return false;
     }
 }
@@ -91,7 +84,6 @@ bool TokenManager::loadTokenFile() {
     try {
         std::ifstream file(config->TOKEN_FILE);
         if (!file.is_open()) {
-            std::cerr << "Cannot open file: " << config->TOKEN_FILE << std::endl;
             return false;
         }
 
@@ -100,7 +92,6 @@ bool TokenManager::loadTokenFile() {
         file.close();
 
         if (token_json.is_null() || token_json.empty()) {
-            std::cerr << "Empty token file" << std::endl;
             return false;
         }
 
@@ -109,7 +100,6 @@ bool TokenManager::loadTokenFile() {
         if (!token_data.contains("access_token") ||
             !token_data.contains("expires_in") ||
             !token_data.contains("refresh_token")) {
-            std::cerr << "Missing required fields in token file" << std::endl;
             return false;
         }
 
@@ -121,7 +111,6 @@ bool TokenManager::loadTokenFile() {
                 out_file.close();
             }
             else {
-                std::cerr << "Failed to open file for writing: " << config->TOKEN_FILE << std::endl;
                 return false;
             }
         }
@@ -129,11 +118,9 @@ bool TokenManager::loadTokenFile() {
         return true;
     }
     catch (const json::parse_error& e) {
-        std::cerr << "JSON parse error: " << e.what() << std::endl;
         return false;
     }
     catch (const std::exception& e) {
-        std::cerr << "Error in loadTokenFile: " << e.what() << std::endl;
         return false;
     }
 }
@@ -142,14 +129,11 @@ bool TokenManager::loadTokenFile() {
 std::string TokenManager::getValidAccessToken() {
     try {
         if (!loadTokenFile()) {
-            std::cerr << "Failed to load token file" << std::endl;
             return "";
         }
 
         if (isTokenExpired()) {
-            std::cerr << "Token is expired" << std::endl;
             if (!refreshToken()) {
-                std::cerr << "Failed to refresh token" << std::endl;
                 return "";
             }
         }
@@ -157,7 +141,6 @@ std::string TokenManager::getValidAccessToken() {
         return token_data["access_token"].get<std::string>();
     }
     catch (const std::exception& e) {
-        std::cerr << "Error in getValidAccessToken: " << e.what() << std::endl;
         return "";
     }
 }

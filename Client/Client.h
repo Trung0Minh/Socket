@@ -3,6 +3,9 @@
 #include <memory>
 #include <functional>
 #include <mutex>
+#include <thread>
+#include <chrono>
+#include <atomic>
 #include "EmailSender.h"
 #include "ClientSocket.h"
 #include "returnToken.h"
@@ -27,9 +30,15 @@ private:
 
     // Control related members
     bool running;
+    std::atomic<bool> connectionCheckRunning;
+    std::thread connectionCheckThread;
+    std::atomic<bool> connectionLostLogged; // Biến trạng thái để theo dõi thông báo đã được in hay chưa
 
     // Helper function for logging
     void log(const std::string& message);
+
+    // Helper function for connection checking
+    void checkConnection();
 
 public:
     // Constructor and Destructor

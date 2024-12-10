@@ -41,6 +41,8 @@ private:
     EmailContent parseEmailContent(const nlohmann::json& emailData);
     void processEmail(const std::string& emailId);
 
+    std::string dummyResponse;
+
 public:
     EmailMonitor();
     ~EmailMonitor();

@@ -40,7 +40,7 @@ public:
     bool Close();
     bool IsConnected() const;
     bool Send(const char* data, int length);
-    int Receive(char* buffer, int bufferSize);
+    int Receive(char* buffer);
     SOCKET GetSocket() const { return connectSocket; }
     void setNonBlocking(bool nonBlocking);
     bool checkConnection();

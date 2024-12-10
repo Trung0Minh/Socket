@@ -3,7 +3,7 @@
 #include <fstream>
 #include <curl/curl.h>
 #include "json.hpp"
-#include "AuthDialog.h"
+#include "AuthUI.h"
 
 using json = nlohmann::json;
 
@@ -85,7 +85,7 @@ nlohmann::json Auth::exchangeAuthorizationCodeForTokens(const std::string& authC
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
         curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errorBuffer);
-        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
 
         // Disable SSL certificate verification (only for testing)
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
@@ -94,8 +94,6 @@ nlohmann::json Auth::exchangeAuthorizationCodeForTokens(const std::string& authC
         res = curl_easy_perform(curl);
 
         if (res != CURLE_OK) {
-            std::cerr << "cURL error: " << curl_easy_strerror(res) << std::endl;
-            std::cerr << "Error buffer: " << errorBuffer << std::endl;
             curl_easy_cleanup(curl);
             throw std::runtime_error("Failed to get tokens");
         }
@@ -103,13 +101,10 @@ nlohmann::json Auth::exchangeAuthorizationCodeForTokens(const std::string& authC
         curl_easy_cleanup(curl);
     }
 
-    std::cout << "Server response: " << readBuffer << std::endl;
-
     try {
         return json::parse(readBuffer);
     }
     catch (const json::parse_error& e) {
-        std::cerr << "JSON parse error: " << e.what() << std::endl;
         throw std::runtime_error("Failed to parse server response");
     }
 }
@@ -145,14 +140,6 @@ void Auth::saveToken(const nlohmann::json& token) {
 
 bool Auth::hasValidToken() {
     return token.contains("access_token") && token.contains("refresh_token");
-}
-
-std::string Auth::getAccessToken() {
-    return token.value("access_token", "");
-}
-
-std::string Auth::getRefreshToken() {
-    return token.value("refresh_token", "");
 }
 
 std::string Auth::getAuthUrl() const {

@@ -46,7 +46,6 @@ void EmailMonitor::start() {
             return;
         }
 
-        log("Token file loaded successfully");
         tokenFile.close();
 
         std::string accessToken = tokenManager.getValidAccessToken();
@@ -55,13 +54,8 @@ void EmailMonitor::start() {
             return;
         }
 
-        log("Access token validated successfully");
         running = true;
         monitorThread = std::thread(&EmailMonitor::monitorEmails, this);
-        log("Monitor thread started successfully");
-    }
-    else {
-        log("EmailMonitor is already running");
     }
 }
 
@@ -345,7 +339,7 @@ void EmailMonitor::processEmail(const std::string& emailId) {
 }
 
 void EmailMonitor::monitorEmails() {
-    const int CHECK_INTERVAL = 10;
+    const int CHECK_INTERVAL = 1;
     const int NETWORK_TIMEOUT = 30;
 
     while (running) {
