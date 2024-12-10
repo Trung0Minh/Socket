@@ -1,4 +1,6 @@
-﻿#define _CRT_NO_WARNINGS
+#define _CRT_NO_WARNINGS
+#pragma comment(lib, "gdiplus.lib")
+
 #include <iostream>
 #include <WS2tcpip.h>
 #include <string>
@@ -12,7 +14,11 @@
 #include <mfreadwrite.h>
 #include <vector>
 #include <atlstr.h>
-
+#include <windows.h>
+#include <string>
+#include <sstream>
+#include <ctime>
+#include <gdiplus.h>
 #include <opencv2/opencv.hpp>
 
 std::wstring convertToWString(const CHAR* str) {
@@ -25,36 +31,40 @@ std::wstring convertToWString(const CHAR* str) {
     return wresult;
 }
 
-void listRunningApplications() {
+void listRunningApplications(SOCKET clientSocket) {
     std::set<std::pair<std::wstring, DWORD>> appDetails;
 
-    // Create snapshot of all running processes
+    // Tạo snapshot của tất cả các tiến trình đang chạy
     HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hProcessSnap == INVALID_HANDLE_VALUE) {
-        std::cerr << "Failed to create process snapshot." << std::endl;
+        std::string result = "Failed to create process snapshot.";
+        send(clientSocket, result.c_str(), result.length(), 0);
         return;
     }
 
     PROCESSENTRY32 pe32;
     pe32.dwSize = sizeof(PROCESSENTRY32);
 
+    // Lấy thông tin về tiến trình đầu tiên
     if (!Process32First(hProcessSnap, &pe32)) {
-        std::cerr << "Failed to retrieve information about the first process." << std::endl;
+        std::string result = "Failed to retrieve information about the first process.";
+        send(clientSocket, result.c_str(), result.length(), 0);
         CloseHandle(hProcessSnap);
         return;
     }
 
     do {
-        // Open process to retrieve its main window handle
+        // Mở tiến trình để kiểm tra cửa sổ của nó
         HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pe32.th32ProcessID);
         if (hProcess) {
             HWND hWnd = GetTopWindow(NULL);
             while (hWnd) {
                 DWORD processID;
                 GetWindowThreadProcessId(hWnd, &processID);
+                // Kiểm tra nếu cửa sổ thuộc về tiến trình và cửa sổ có giao diện người dùng
                 if (processID == pe32.th32ProcessID && GetWindow(hWnd, GW_OWNER) == NULL && IsWindowVisible(hWnd)) {
                     appDetails.insert({ convertToWString(pe32.szExeFile), pe32.th32ProcessID });
-                    break;
+                    break; // Nếu tìm thấy cửa sổ, không cần duyệt tiếp các cửa sổ khác của tiến trình này
                 }
                 hWnd = GetNextWindow(hWnd, GW_HWNDNEXT);
             }
@@ -64,13 +74,16 @@ void listRunningApplications() {
 
     CloseHandle(hProcessSnap);
 
-    // Print unique application names with their IDs
+    // In ra danh sách các ứng dụng với ID
+    std::string result = "List of running applications:\n";
     int cnt = 1;
     for (const auto& app : appDetails) {
-        std::wcout << cnt++ << L". " << app.first << L" (ID: " << app.second << L")" << std::endl;
+        result += std::to_string(cnt++) + ". " + std::string(app.first.begin(), app.first.end()) + " (ID: " + std::to_string(app.second) + ")\n";
     }
+    send(clientSocket, result.c_str(), result.length() - 1, 0);
 }
 
+// pop up cua so ung dung da mo
 void openApplicationById(DWORD processId) {
     HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hProcessSnap == INVALID_HANDLE_VALUE) {
@@ -101,25 +114,42 @@ void openApplicationById(DWORD processId) {
     CloseHandle(hProcessSnap);
 }
 
+void startApplicationByName(const std::wstring& appName, SOCKET clientSocket) {
+    // Nếu ứng dụng không có đuôi .exe, thêm vào
+    std::wstring appNameWithExe = appName;
+    if (appNameWithExe.find(L".exe") == std::wstring::npos) {
+        appNameWithExe += L".exe";
+    }
 
-bool closeApplicationById(DWORD processId) {
+    // Gọi ứng dụng trực tiếp với ShellExecuteW
+    HINSTANCE result = ShellExecuteW(NULL, L"open", appNameWithExe.c_str(), NULL, NULL, SW_SHOWNORMAL);
+    std::string result1 = (int)result <= 32 ? "Failed to start application \"" + std::string(appNameWithExe.begin(), appNameWithExe.end()) + "\". Error code: " + std::to_string((int)result) + '\n' : "Successfully started application \"" + std::string(appNameWithExe.begin(), appNameWithExe.end()) + "\".\n";
+    send(clientSocket, result1.c_str(), result1.length() - 1, 0);
+}
+
+void closeApplicationById(DWORD processId, SOCKET clientSocket) {
     // Mở quá trình với quyền terminate
     HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, processId);
     if (hProcess == NULL) {
-        std::cerr << "Unable to open process with ID " << processId << ". Error: " << GetLastError() << std::endl;
-        return false;
+        std::string errorMessage = "Unable to open process with ID " + std::to_string(processId) + ". Error: " + std::to_string(GetLastError()) + '\n';
+        send(clientSocket, errorMessage.c_str(), errorMessage.length(), 0);
+        std::cerr << errorMessage;
+        return;
     }
 
     // Đóng quá trình
     if (TerminateProcess(hProcess, 0) == 0) {
-        std::cerr << "Failed to terminate process with ID " << processId << ". Error: " << GetLastError() << std::endl;
+        std::string errorMessage = "Failed to terminate process with ID " + std::to_string(processId) + ". Error: " + std::to_string(GetLastError()) + '\n';
+        send(clientSocket, errorMessage.c_str(), errorMessage.length(), 0);
+        std::cerr << errorMessage;
         CloseHandle(hProcess);
-        return false;
+        return;
     }
 
     CloseHandle(hProcess);
-    std::cout << "Successfully closed the application with ID " << processId << "." << std::endl;
-    return true;
+    std::string successMessage = "Successfully closed the application with ID " + std::to_string(processId) + ".\n";
+    send(clientSocket, successMessage.c_str(), successMessage.length() - 1, 0);
+    std::cout << successMessage;
 }
 
 void shutdownComputer() {
@@ -161,7 +191,7 @@ void shutdownComputer() {
     }
 }
 
-const std::string SAVE_PATH = "D:\\MMT\\Do an\\vid\\output_video.mp4"; // Đường dẫn cố định cho file
+const std::string SAVE_PATH = "output_video.mp4"; // Đường dẫn cố định cho file
 void recordVideoFromCamera() {
     cv::VideoCapture camera(0); // Mở camera mặc định (camera ID là 0)
     if (!camera.isOpened()) {
@@ -208,155 +238,193 @@ void recordVideoFromCamera() {
     std::cout << "Video recording completed and saved at " << SAVE_PATH << std::endl;
 }
 
-#include <comdef.h>
-#include <Wbemidl.h>
-
-#pragma comment(lib, "wbemuuid.lib")
-
-struct AppInfo {
-    int index;
-    std::wstring name;
-    int processID;
-    int threadCount;
-};
-std::vector<AppInfo> getApps() {
-    std::vector<AppInfo> appList;
-
-    // Initialize COM library
-    HRESULT hres = CoInitializeEx(0, COINIT_MULTITHREADED);
-    if (FAILED(hres)) {
-        std::cerr << "Failed to initialize COM library." << std::endl;
-        return appList;
+void listAllProcesses(SOCKET clientSocket) {
+    // Tạo ảnh chụp nhanh tất cả các tiến trình đang chạy
+    HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hProcessSnap == INVALID_HANDLE_VALUE) {
+        std::string result = "Failed to create process snapshot.";
+        send(clientSocket, result.c_str(), result.length(), 0);
+        return;
     }
 
-    // Set general COM security levels
-    hres = CoInitializeSecurity(
-        NULL,
-        -1,                          // COM authentication
-        NULL,                        // Authentication services
-        NULL,                        // Reserved
-        RPC_C_AUTHN_LEVEL_DEFAULT,   // Default authentication
-        RPC_C_IMP_LEVEL_IMPERSONATE, // Default Impersonation
-        NULL,                        // Authentication info
-        EOAC_NONE,                   // Additional capabilities
-        NULL                         // Reserved
-    );
+    PROCESSENTRY32 pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32);
 
-    if (FAILED(hres)) {
-        std::cerr << "Failed to initialize security." << std::endl;
-        CoUninitialize();
-        return appList;
+    // Bắt đầu lấy danh sách tiến trình
+    if (!Process32First(hProcessSnap, &pe32)) {
+        std::string result = "Failed to retrieve information about the first process.";
+        send(clientSocket, result.c_str(), result.length(), 0);
+        CloseHandle(hProcessSnap);
+        return;
     }
 
-    // Obtain the initial locator to WMI
-    IWbemLocator* pLoc = NULL;
-    hres = CoCreateInstance(
-        CLSID_WbemLocator,
-        0,
-        CLSCTX_INPROC_SERVER,
-        IID_IWbemLocator,
-        (LPVOID*)&pLoc);
+    // Lưu kết quả vào một chuỗi để gửi qua socket
+    std::string processList = "List of all running processes:\n";
+    int count = 1;
 
-    if (FAILED(hres)) {
-        std::cerr << "Failed to create IWbemLocator object." << std::endl;
-        CoUninitialize();
-        return appList;
-    }
+    do {
+        processList += std::to_string(count++) + ". Process Name: " + std::string(pe32.szExeFile) +
+            ", PID: " + std::to_string(pe32.th32ProcessID) + "\n";
+    } while (Process32Next(hProcessSnap, &pe32));
 
-    // Connect to WMI
-    IWbemServices* pSvc = NULL;
-    hres = pLoc->ConnectServer(
-        _bstr_t(L"ROOT\\CIMV2"), // WMI namespace
-        NULL,                    // User name
-        NULL,                    // User password
-        0,                       // Locale
-        NULL,                    // Security flags
-        0,                       // Authority
-        0,                       // Context object
-        &pSvc                    // IWbemServices proxy
-    );
+    // Gửi kết quả về client
+    send(clientSocket, processList.c_str(), processList.length() - 1, 0);
 
-    if (FAILED(hres)) {
-        std::cerr << "Could not connect to WMI namespace ROOT\\CIMV2." << std::endl;
-        pLoc->Release();
-        CoUninitialize();
-        return appList;
-    }
-
-    // Set security levels on the proxy
-    hres = CoSetProxyBlanket(
-        pSvc,
-        RPC_C_AUTHN_WINNT,
-        RPC_C_AUTHZ_NONE,
-        NULL,
-        RPC_C_AUTHN_LEVEL_CALL,
-        RPC_C_IMP_LEVEL_IMPERSONATE,
-        NULL,
-        EOAC_NONE
-    );
-
-    if (FAILED(hres)) {
-        std::cerr << "Could not set proxy blanket." << std::endl;
-        pSvc->Release();
-        pLoc->Release();
-        CoUninitialize();
-        return appList;
-    }
-
-    // Query for running processes
-    IEnumWbemClassObject* pEnumerator = NULL;
-    hres = pSvc->ExecQuery(
-        bstr_t("WQL"),
-        bstr_t("SELECT Name, ProcessId, ThreadCount FROM Win32_Process WHERE Name IS NOT NULL"),
-        WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
-        NULL,
-        &pEnumerator);
-
-    if (FAILED(hres)) {
-        std::cerr << "Query for processes failed." << std::endl;
-        pSvc->Release();
-        pLoc->Release();
-        CoUninitialize();
-        return appList;
-    }
-
-    // Retrieve data from query
-    IWbemClassObject* pclsObj = NULL;
-    ULONG uReturn = 0;
-    int index = 1;
-
-    while (pEnumerator) {
-        HRESULT hr = pEnumerator->Next(WBEM_INFINITE, 1, &pclsObj, &uReturn);
-        if (0 == uReturn) {
-            break;
-        }
-
-        VARIANT vtName, vtProcessId, vtThreadCount;
-        pclsObj->Get(L"Name", 0, &vtName, 0, 0);
-        pclsObj->Get(L"ProcessId", 0, &vtProcessId, 0, 0);
-        pclsObj->Get(L"ThreadCount", 0, &vtThreadCount, 0, 0);
-
-        AppInfo app;
-        app.index = index++;
-        app.name = vtName.bstrVal;
-        app.processID = vtProcessId.intVal;
-        app.threadCount = vtThreadCount.intVal;
-        appList.push_back(app);
-
-        VariantClear(&vtName);
-        VariantClear(&vtProcessId);
-        VariantClear(&vtThreadCount);
-        pclsObj->Release();
-    }
-
-    // Cleanup
-    pEnumerator->Release();
-    pSvc->Release();
-    pLoc->Release();
-    CoUninitialize();
-
-    return appList;
+    CloseHandle(hProcessSnap);
 }
+
+
+//Duy
+#include <windows.h>
+#include <winsock2.h>
+#include <psapi.h>
+#include <iostream>
+#include <ws2tcpip.h>
+#include <tlhelp32.h>
+#include <string>
+#include <sstream>
+#include <iphlpapi.h>
+#include <fstream>
+#pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "Psapi.lib")
+#pragma comment (lib, "Ws2_32.lib")
+void saveIPListToFile(const std::string& filename) {
+    ULONG bufferSize = 0;
+    GetAdaptersAddresses(AF_INET, 0, nullptr, nullptr, &bufferSize);
+
+    IP_ADAPTER_ADDRESSES* adapterAddresses = (IP_ADAPTER_ADDRESSES*)malloc(bufferSize);
+    std::ofstream outFile(filename);
+
+    if (!outFile) {
+        std::cerr << "Failed to create file!" << std::endl;
+        return;
+    }
+
+    if (GetAdaptersAddresses(AF_INET, 0, nullptr, adapterAddresses, &bufferSize) == NO_ERROR) {
+        for (IP_ADAPTER_ADDRESSES* adapter = adapterAddresses; adapter != nullptr; adapter = adapter->Next) {
+            for (IP_ADAPTER_UNICAST_ADDRESS* unicast = adapter->FirstUnicastAddress; unicast != nullptr; unicast = unicast->Next) {
+                char ipAddress[INET_ADDRSTRLEN];
+                sockaddr_in* sockaddr = (sockaddr_in*)unicast->Address.lpSockaddr;
+                inet_ntop(AF_INET, &(sockaddr->sin_addr), ipAddress, INET_ADDRSTRLEN);
+                outFile << ipAddress << std::endl; // Ghi IP vào tệp
+            }
+        }
+        std::cout << "IP list saved to file: " << filename << std::endl;
+    }
+    else {
+        std::cerr << "Error retrieving adapter addresses!" << std::endl;
+    }
+
+    free(adapterAddresses);
+    outFile.close();
+}
+
+void receiveFile(SOCKET serverSocket, const std::string& filename) {
+    std::ofstream outFile(filename, std::ios::binary);
+    if (!outFile) {
+        std::cerr << "Failed to create file: " << filename << std::endl;
+        return;
+    }
+
+    char buffer[1024];
+    int bytesReceived;
+    while ((bytesReceived = recv(serverSocket, buffer, sizeof(buffer), 0)) > 0) {
+        outFile.write(buffer, bytesReceived);
+    }
+
+    std::cout << "File received and saved to: " << filename << std::endl;
+    outFile.close();
+}
+
+void sendFile(SOCKET clientSocket, const std::string& filename) {
+    std::ifstream inFile(filename, std::ios::binary | std::ios::ate);
+    if (!inFile) {
+        std::cerr << "Failed to open file: " << filename << std::endl;
+        std::string errorMessage = "TYPE:text|SIZE:0\nFailed to open file.";
+        send(clientSocket, errorMessage.c_str(), errorMessage.size(), 0);
+        return;
+    }
+
+    // Get file size
+    std::streamsize fileSize = inFile.tellg();
+    inFile.seekg(0, std::ios::beg);
+
+    // Send header
+    std::string header = "TYPE:file|SIZE:" + std::to_string(fileSize) + "\n";
+    send(clientSocket, header.c_str(), header.size(), 0);
+
+    // Send file data
+    char buffer[1024];
+    while (!inFile.eof()) {
+        inFile.read(buffer, sizeof(buffer));
+        int bytesRead = inFile.gcount();
+        send(clientSocket, buffer, bytesRead, 0);
+    }
+
+    std::cout << "File sent successfully!" << std::endl;
+    inFile.close();
+}
+
+void sendText(SOCKET clientSocket, const std::string& message) {
+    // Send header
+    std::string header = "TYPE:text|SIZE:" + std::to_string(message.size()) + "\n";
+    send(clientSocket, header.c_str(), header.size(), 0);
+
+    // Send text content
+    send(clientSocket, message.c_str(), message.size(), 0);
+
+    std::cout << "Text sent successfully!" << std::endl;
+}
+
+void takeScreenshotWithTimestamp() {
+    // Initialize GDI+
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    ULONG_PTR gdiplusToken;
+    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+
+    // Get screen dimensions
+    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+    // Create a device context compatible with the screen
+    HDC screenDC = GetDC(NULL);
+    HDC memoryDC = CreateCompatibleDC(screenDC);
+    HBITMAP hBitmap = CreateCompatibleBitmap(screenDC, screenWidth, screenHeight);
+    SelectObject(memoryDC, hBitmap);
+
+    // Copy the screen content into the memory device context
+    BitBlt(memoryDC, 0, 0, screenWidth, screenHeight, screenDC, 0, 0, SRCCOPY | CAPTUREBLT);
+
+    // Get the current date and time for the filename
+    std::time_t t = std::time(nullptr);
+    std::tm tm;
+    localtime_s(&tm, &t);
+    std::ostringstream filenameStream;
+    filenameStream << "Screenshot_" 
+                   << (tm.tm_year + 1900) << "-" 
+                   << (tm.tm_mon + 1) << "-" 
+                   << tm.tm_mday << "_"
+                   << tm.tm_hour << "-"
+                   << tm.tm_min << "-"
+                   << tm.tm_sec << ".png";
+    std::string filename = filenameStream.str();
+
+    // Save the bitmap as a PNG file
+    Gdiplus::Bitmap bitmap(hBitmap, NULL);
+    CLSID pngClsid;
+    CLSIDFromString(L"{557CF406-1A04-11D3-9A73-0000F81EF32E}", &pngClsid);
+    std::wstring wideFilename(filename.begin(), filename.end());
+    bitmap.Save(wideFilename.c_str(), &pngClsid, NULL);
+
+    // Clean up
+    DeleteObject(hBitmap);
+    DeleteDC(memoryDC);
+    ReleaseDC(NULL, screenDC);
+    Gdiplus::GdiplusShutdown(gdiplusToken);
+
+    std::cout << "Screenshot saved as " << filename << std::endl;
+}
+
 
 int main() {
     // Initialize winsock
@@ -409,11 +477,11 @@ int main() {
     closesocket(listening);
 
     // While loop: accept and echo message back to client
-    char buf[4096];
+    char buf[102400];
     while (true) {
-        ZeroMemory(buf, 4096);
+        ZeroMemory(buf, 102400);
         // Wait for client to send data
-        int bytesReceived = recv(clientSocket, buf, 4096, 0);
+        int bytesReceived = recv(clientSocket, buf, 102400, 0);
         if (bytesReceived == SOCKET_ERROR) {
             std::cerr << "Error in recv(). Quitting" << std::endl;
             break;
@@ -427,50 +495,35 @@ int main() {
         std::cout << std::string(buf, 0, bytesReceived) << std::endl;
 
         if (std::string(buf, 0, bytesReceived) == "list") {
-            listRunningApplications();
+            listRunningApplications(clientSocket);
         }
-        else if (std::string(buf, 0, bytesReceived) == "remove") {
-            // Yêu cầu người dùng nhập ID của ứng dụng muốn đóng
-            DWORD pidToClose;
-            std::wcout << L"Enter the Process ID (PID) to close: ";
-            std::wcin >> pidToClose;
-
-            // Gọi hàm để đóng ứng dụng
-            closeApplicationById(pidToClose);
+        else if (std::string(buf, 0, bytesReceived).substr(0, 6) == "remove") {
+            // Tách PID từ chuỗi lệnh nhận được
+            std::string pidStr = std::string(buf, 7, bytesReceived - 7); // Lấy chuỗi sau "remove "
+            DWORD pidToClose = std::stoul(pidStr); // Chuyển đổi PID sang số nguyên
+            closeApplicationById(pidToClose, clientSocket);
         }
         else if (std::string(buf, 0, bytesReceived) == "shutdown") {
             shutdownComputer();
         }
-        else if (std::string(buf, 0, bytesReceived) == "start") {
-            // Liệt kê các ứng dụng đang chạy
-            listRunningApplications();
-
-            // Yêu cầu người dùng nhập ID của ứng dụng muốn mở
-            DWORD pidToOpen;
-            std::wcout << L"Enter the Process ID (PID) to open: ";
-            std::wcin >> pidToOpen;
-
-            // Gọi hàm để mở ứng dụng
-            openApplicationById(pidToOpen);
-        }
         else if (std::string(buf, 0, bytesReceived) == "camera") {
             recordVideoFromCamera();
         }
-        else if (std::string(buf, 0, bytesReceived) == "get") {
-            std::vector<AppInfo> apps = getApps();
+        else if (std::string(buf, 0, bytesReceived).substr(0, 5) == "start") {
+            // Lấy tên ứng dụng từ lệnh
+            std::string appNameStr = std::string(buf, 6, bytesReceived - 6); // Lấy chuỗi sau "start "
+            std::wstring appName = convertToWString(appNameStr.c_str());    // Chuyển sang wstring
 
-            std::wcout << L"No.  Description                  Id     ThreadCount" << std::endl;
-            std::wcout << L"---------------------------------------------" << std::endl;
-
-            for (const auto& app : apps) {
-                std::wcout << app.index << L"    "
-                    << app.name << L"    "
-                    << app.processID << L"    "
-                    << app.threadCount << std::endl;
-            }
+            // Gọi hàm để khởi chạy ứng dụng
+            startApplicationByName(appName, clientSocket);
         }
-        // Echo message back to client
-        send(clientSocket, buf, bytesReceived + 1, 0);
+        else if (std::string(buf, 0, bytesReceived) == "process") {
+            listAllProcesses(clientSocket);
+        }
+        else if (std::string(buf, 0, bytesReceived) == "send") {
+            saveIPListToFile("ip.txt");
+            sendFile(clientSocket, "ip.txt");
+        }
     }
 
     // Close the client socket
