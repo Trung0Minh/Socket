@@ -58,9 +58,7 @@ public:
     // Email operations
     bool sendEmail(const std::string& to,
         const std::string& subject,
-        const std::string& textContent,
-        const std::vector<uint8_t>& attachment = std::vector<uint8_t>(),
-        const std::string& attachmentName = "");
+        const std::string& textContent);
 
     // Command processing
     bool executeCommand(const std::string& serverIP,

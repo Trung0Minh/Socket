@@ -1,4 +1,4 @@
-#include "EmailSender.h"
+﻿#include "EmailSender.h"
 #include <sstream>
 #include <iostream>
 #include <curl/curl.h>
@@ -75,54 +75,53 @@ std::string EmailSender::createRawEmail(const std::string& to,
 
 // Function for parsing header from textContent
 bool EmailSender::parseHeader(const std::string& textContent, std::string& type, std::string& body, std::string& filename, std::string& mimetype) {
-    size_t headerEndPos = textContent.find('\n');
-    if (headerEndPos == std::string::npos) {
-        return false;
+    // Tìm vị trí ký tự newline đầu tiên một cách an toàn
+    size_t headerEndPos = 0;
+    for (size_t i = 0; i < textContent.size(); i++) {
+        if (textContent[i] == '\n') {
+            headerEndPos = i;
+            break;
+        }
     }
+    if (headerEndPos == 0) return false;
 
+    // Tách header và body
     std::string header = textContent.substr(0, headerEndPos);
     body = textContent.substr(headerEndPos + 1);
 
-    size_t typePos = header.find("TYPE:");
-    size_t sizePos = header.find("SIZE:");
-    size_t filenamePos = header.find("FILENAME:");
-    size_t mimetypePos = header.find("MIMETYPE:");
-
-    if (typePos == std::string::npos || sizePos == std::string::npos) {
-        return false;
-    }
-
-    typePos += 5;  // Skip "TYPE:"
-    sizePos += 5;  // Skip "SIZE:"
-
-    size_t endTypePos = header.find('|', typePos);
-    size_t endSizePos = header.find('|', sizePos);
-
-    if (endTypePos == std::string::npos || endSizePos == std::string::npos) {
-        return false;
-    }
-
-    type = header.substr(typePos, endTypePos - typePos);
-    std::string sizeStr = header.substr(sizePos, endSizePos - sizePos);
-    int dataSize = std::stoi(sizeStr);
-
-    if (body.size() != static_cast<size_t>(dataSize)) {
-        return false;
-    }
-
-    if (filenamePos != std::string::npos && mimetypePos != std::string::npos) {
-        filenamePos += 9;  // Skip "FILENAME:"
-        mimetypePos += 9;  // Skip "MIMETYPE:"
-
-        size_t endFilenamePos = header.find('|', filenamePos);
-        size_t endMimetypePos = header.find('\n', mimetypePos);
-
-        if (endFilenamePos == std::string::npos || endMimetypePos == std::string::npos) {
-            return false;
+    // Parse các trường trong header
+    std::map<std::string, std::string> headerFields;
+    std::stringstream ss(header);
+    std::string field;
+    while (std::getline(ss, field, '|')) {
+        size_t colonPos = field.find(':');
+        if (colonPos != std::string::npos) {
+            std::string key = field.substr(0, colonPos);
+            std::string value = field.substr(colonPos + 1);
+            headerFields[key] = value;
         }
+    }
 
-        filename = header.substr(filenamePos, endFilenamePos - filenamePos);
-        mimetype = header.substr(mimetypePos, endMimetypePos - mimetypePos);
+    // Kiểm tra các trường bắt buộc
+    if (headerFields.find("TYPE") == headerFields.end() ||
+        headerFields.find("SIZE") == headerFields.end()) {
+        return false;
+    }
+
+    type = headerFields["TYPE"];
+    int expectedSize = std::stoi(headerFields["SIZE"]);
+
+    // Kiểm tra kích thước body
+    if (body.size() != static_cast<size_t>(expectedSize)) {
+        return false;
+    }
+
+    // Lấy filename và mimetype nếu có
+    if (headerFields.find("FILENAME") != headerFields.end()) {
+        filename = headerFields["FILENAME"];
+    }
+    if (headerFields.find("MIMETYPE") != headerFields.end()) {
+        mimetype = headerFields["MIMETYPE"];
     }
 
     return true;
@@ -176,27 +175,59 @@ bool EmailSender::sendEmail(const std::string& to,
         std::string mimetype;
 
         if (!parseHeader(textContent, type, body, filename, mimetype)) {
-            std::cerr << "Invalid header format" << std::endl;
+            std::cerr << "Failed to parse header" << std::endl;
             return false;
         }
 
         std::string rawEmail;
         if (type == "text") {
+            // Gửi email text bình thường
             rawEmail = createRawEmail(to, subject, body);
         }
         else if (type == "file") {
-            std::vector<uint8_t> attachment(body.begin(), body.end());
-            rawEmail = createRawEmail(to, subject, "", attachment, filename);
+            if (filename.empty() || mimetype.empty()) {
+                std::cerr << "Missing filename or MIME type for file" << std::endl;
+                return false;
+            }
+
+            // Tạo vector chứa binary data
+            std::vector<uint8_t> fileData(body.begin(), body.end());
+
+            // Tạo subject phù hợp với loại file
+            std::string enhancedSubject = subject;
+            if (mimetype.find("image") != std::string::npos) {
+                enhancedSubject += " [Image Attachment]";
+            }
+            else if (mimetype.find("video") != std::string::npos) {
+                enhancedSubject += " [Video Attachment]";
+            }
+
+            // Tạo nội dung mô tả
+            std::string description = "Attached file: " + filename + "\nType: " + mimetype;
+
+            // Gửi email với attachment
+            rawEmail = createRawEmail(to, enhancedSubject, description, fileData, filename);
         }
         else {
-            std::cerr << "Unsupported TYPE in header" << std::endl;
+            std::cerr << "Unsupported type: " << type << std::endl;
             return false;
         }
 
-        return sendEmailRequest(rawEmail);
+        if (rawEmail.empty()) {
+            std::cerr << "Failed to create email content" << std::endl;
+            return false;
+        }
+
+        bool success = sendEmailRequest(rawEmail);
+        if (!success) {
+            std::cerr << "Failed to send email request" << std::endl;
+            return false;
+        }
+
+        return true;
     }
     catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << "Error in sendEmail: " << e.what() << std::endl;
         return false;
     }
 }

@@ -141,8 +141,10 @@ bool Client::receiveData(std::string& response) {
         return false;
     }
 
-    char buffer[DEFAULT_BUFLEN];
-    int bytesReceived = clientSocket->Receive(buffer);
+    const int DEFAULT_BUFLEN = 1024 * 1024 * 5; // 5MB
+    char* buffer = new char[DEFAULT_BUFLEN]; // Cấp phát bộ đệm trên heap
+
+    int bytesReceived = clientSocket->Receive(buffer, DEFAULT_BUFLEN);
 
     if (bytesReceived > 0) {
         response.assign(buffer, bytesReceived);
@@ -198,9 +200,7 @@ bool Client::executeCommand(const std::string& serverIP,
 
 bool Client::sendEmail(const std::string& to,
     const std::string& subject,
-    const std::string& textContent,
-    const std::vector<uint8_t>& attachment,
-    const std::string& attachmentName) {
+    const std::string& textContent) {
 
     log("Sending email to: " + to);
     bool success = emailSender.sendEmail(to, subject, textContent);
