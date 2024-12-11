@@ -191,14 +191,28 @@ void shutdownComputer() {
     }
 }
 
-const std::string SAVE_PATH = "output_video.mp4"; // Đường dẫn cố định cho file
-void recordVideoFromCamera() {
+std::string getCurrentTimestamp() {
+    std::time_t t = std::time(nullptr);
+    std::tm tm;
+    localtime_s(&tm, &t);
+    std::ostringstream oss;
+    oss << (tm.tm_year + 1900) << "-"
+        << (tm.tm_mon + 1) << "-"
+        << tm.tm_mday << "_"
+        << tm.tm_hour << "-"
+        << tm.tm_min << "-"
+        << tm.tm_sec;
+    return oss.str();
+}
+
+void recordVideoFromCamera(int duration_seconds) {
     cv::VideoCapture camera(0); // Mở camera mặc định (camera ID là 0)
     if (!camera.isOpened()) {
         std::cerr << "Could not open the camera." << std::endl;
         return;
     }
 
+    std::string SAVE_PATH = "Record_" + getCurrentTimestamp() + ".mp4";
     int frameWidth = static_cast<int>(camera.get(cv::CAP_PROP_FRAME_WIDTH));
     int frameHeight = static_cast<int>(camera.get(cv::CAP_PROP_FRAME_HEIGHT));
     cv::Size frameSize(frameWidth, frameHeight);
@@ -213,8 +227,7 @@ void recordVideoFromCamera() {
 
     std::cout << "Recording video..." << std::endl;
 
-    int duration = 3; // Thời gian quay video (giây)
-    int frameCount = duration * 30; // 30 FPS (số khung hình mỗi giây)
+    int frameCount = duration_seconds * 30; // 30 FPS (số khung hình mỗi giây)
 
     for (int i = 0; i < frameCount; ++i) {
         cv::Mat frame;
@@ -237,7 +250,6 @@ void recordVideoFromCamera() {
     cv::destroyAllWindows();
     std::cout << "Video recording completed and saved at " << SAVE_PATH << std::endl;
 }
-
 void listAllProcesses(SOCKET clientSocket) {
     // Tạo ảnh chụp nhanh tất cả các tiến trình đang chạy
     HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -423,19 +435,8 @@ void takeScreenshotWithTimestamp(SOCKET clientSocket) {
     // Copy the screen content into the memory device context
     BitBlt(memoryDC, 0, 0, screenWidth, screenHeight, screenDC, 0, 0, SRCCOPY | CAPTUREBLT);
 
-    // Get the current date and time for the filename
-    std::time_t t = std::time(nullptr);
-    std::tm tm;
-    localtime_s(&tm, &t);
-    std::ostringstream filenameStream;
-    filenameStream << "Screenshot_" 
-                   << (tm.tm_year + 1900) << "-" 
-                   << (tm.tm_mon + 1) << "-" 
-                   << tm.tm_mday << "_"
-                   << tm.tm_hour << "-"
-                   << tm.tm_min << "-"
-                   << tm.tm_sec << ".png";
-    std::string filename = filenameStream.str();
+    
+    std::string filename = "Screenshot_" + getCurrentTimestamp() + ".png";
 
     // Save the bitmap as a PNG file
     Gdiplus::Bitmap bitmap(hBitmap, NULL);
@@ -453,7 +454,6 @@ void takeScreenshotWithTimestamp(SOCKET clientSocket) {
     std::cout << "Screenshot saved as " << filename << std::endl;
     sendFile(clientSocket, filename);
 }
-
 
 int main() {
     // Initialize winsock
@@ -535,8 +535,10 @@ int main() {
         else if (std::string(buf, 0, bytesReceived) == "shutdown") {
             shutdownComputer();
         }
-        else if (std::string(buf, 0, bytesReceived) == "camera") {
-            recordVideoFromCamera();
+        else if (std::string(buf, 0, bytesReceived).substr(0, 6) == "camera") {
+            std::string duration_seconds_str = std::string(buf, 7, bytesReceived - 7); // Lấy chuỗi sau "camera"
+            DWORD duration__seconds = std::stoul(duration_seconds_str); // Chuyển đổi duration_second_str sang số nguyên
+            recordVideoFromCamera(duration__seconds);
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 5) == "start") {
             // Lấy tên ứng dụng từ lệnh
