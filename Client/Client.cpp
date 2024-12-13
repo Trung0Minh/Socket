@@ -141,7 +141,7 @@ bool Client::receiveData(std::string& response) {
         return false;
     }
 
-    const int DEFAULT_BUFLEN = 1024 * 1024 * 5; // 5MB
+    const int DEFAULT_BUFLEN = 1024 * 1024 * 10; // 5MB
     char* buffer = new char[DEFAULT_BUFLEN]; // Cấp phát bộ đệm trên heap
 
     int bytesReceived = clientSocket->Receive(buffer, DEFAULT_BUFLEN);

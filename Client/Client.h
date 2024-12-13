@@ -21,7 +21,6 @@ private:
     std::string currentServerIP;
     std::string currentPort;
     std::mutex socketMutex;
-    static const int DEFAULT_BUFLEN = 4096;
 
     // Email related members
     EmailSender emailSender;
