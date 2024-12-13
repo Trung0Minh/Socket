@@ -191,6 +191,63 @@ void shutdownComputer() {
     }
 }
 
+void sendFile(SOCKET clientSocket, const std::string& filename) {
+    std::ifstream inFile(filename, std::ios::binary | std::ios::ate);
+    if (!inFile) {
+        std::cerr << "Failed to open file: " << filename << std::endl;
+        std::string errorMessage = "TYPE:text|SIZE:0\nFailed to open file.";
+        send(clientSocket, errorMessage.c_str(), errorMessage.size(), 0);
+        return;
+    }
+
+    // Get file size
+    std::streamsize fileSize = inFile.tellg();
+    inFile.seekg(0, std::ios::beg);
+
+    // Extract filename and determine MIME type
+    size_t lastSlash = filename.find_last_of("/\\");
+    std::string fileName = (lastSlash != std::string::npos) ? filename.substr(lastSlash + 1) : filename;
+    std::string mimeType;
+    if (fileName.size() >= 4 && fileName.compare(fileName.size() - 4, 4, ".png") == 0) {
+        mimeType = "image/png";
+    }
+    else if (fileName.size() >= 4 && fileName.compare(fileName.size() - 4, 4, ".mp4") == 0) {
+        mimeType = "video/mp4";
+    }
+    else {
+        std::cerr << "Unsupported file format: " << filename << std::endl;
+        std::string errorMessage = "TYPE:text|SIZE:0\nUnsupported file format.";
+        send(clientSocket, errorMessage.c_str(), errorMessage.size(), 0);
+        inFile.close();
+        return;
+    }
+
+    // Send header
+    std::string header = "TYPE:file|SIZE:" + std::to_string(fileSize) + "|FILENAME:" + fileName + "|MIMETYPE:" + mimeType + "\n";
+    if (send(clientSocket, header.c_str(), header.size(), 0) != static_cast<int>(header.size())) {
+        std::cerr << "Failed to send header" << std::endl;
+        inFile.close();
+        return;
+    }
+
+    // Send file data
+    char buffer[1024];
+    while (inFile) {
+        inFile.read(buffer, sizeof(buffer));
+        int bytesRead = inFile.gcount();
+        if (bytesRead > 0) {
+            if (send(clientSocket, buffer, bytesRead, 0) != bytesRead) {
+                std::cerr << "Failed to send file data" << std::endl;
+                inFile.close();
+                return;
+            }
+        }
+    }
+
+    std::cout << "File sent successfully!" << std::endl;
+    inFile.close();
+}
+
 std::string getCurrentTimestamp() {
     std::time_t t = std::time(nullptr);
     std::tm tm;
@@ -205,20 +262,20 @@ std::string getCurrentTimestamp() {
     return oss.str();
 }
 
-void recordVideoFromCamera(int duration_seconds) {
+void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
     cv::VideoCapture camera(0); // Mở camera mặc định (camera ID là 0)
     if (!camera.isOpened()) {
         std::cerr << "Could not open the camera." << std::endl;
         return;
     }
 
-    std::string SAVE_PATH = "Record_" + getCurrentTimestamp() + ".mp4";
+    std::string filename = "Record_" + getCurrentTimestamp() + ".mp4";
     int frameWidth = static_cast<int>(camera.get(cv::CAP_PROP_FRAME_WIDTH));
     int frameHeight = static_cast<int>(camera.get(cv::CAP_PROP_FRAME_HEIGHT));
     cv::Size frameSize(frameWidth, frameHeight);
 
-    // Tạo đối tượng VideoWriter để lưu video tại SAVE_PATH
-    cv::VideoWriter videoWriter(SAVE_PATH, cv::VideoWriter::fourcc('H', '2', '6', '4'), 30, frameSize);
+    // Tạo đối tượng VideoWriter để lưu video tại filename
+    cv::VideoWriter videoWriter(filename, cv::VideoWriter::fourcc('H', '2', '6', '4'), 30, frameSize);
 
     if (!videoWriter.isOpened()) {
         std::cerr << "Could not open the video writer." << std::endl;
@@ -248,7 +305,8 @@ void recordVideoFromCamera(int duration_seconds) {
     camera.release();
     videoWriter.release();
     cv::destroyAllWindows();
-    std::cout << "Video recording completed and saved at " << SAVE_PATH << std::endl;
+    std::cout << "Video recording completed and saved at " << filename << std::endl;
+    sendFile(clientSocket, filename);
 }
 void listAllProcesses(SOCKET clientSocket) {
     // Tạo ảnh chụp nhanh tất cả các tiến trình đang chạy
@@ -346,63 +404,6 @@ void receiveFile(SOCKET serverSocket, const std::string& filename) {
 
     std::cout << "File received and saved to: " << filename << std::endl;
     outFile.close();
-}
-
-void sendFile(SOCKET clientSocket, const std::string& filename) {
-    std::ifstream inFile(filename, std::ios::binary | std::ios::ate);
-    if (!inFile) {
-        std::cerr << "Failed to open file: " << filename << std::endl;
-        std::string errorMessage = "TYPE:text|SIZE:0\nFailed to open file.";
-        send(clientSocket, errorMessage.c_str(), errorMessage.size(), 0);
-        return;
-    }
-
-    // Get file size
-    std::streamsize fileSize = inFile.tellg();
-    inFile.seekg(0, std::ios::beg);
-
-    // Extract filename and determine MIME type
-    size_t lastSlash = filename.find_last_of("/\\");
-    std::string fileName = (lastSlash != std::string::npos) ? filename.substr(lastSlash + 1) : filename;
-    std::string mimeType;
-    if (fileName.size() >= 4 && fileName.compare(fileName.size() - 4, 4, ".png") == 0) {
-        mimeType = "image/png";
-    }
-    else if (fileName.size() >= 4 && fileName.compare(fileName.size() - 4, 4, ".mp4") == 0) {
-        mimeType = "video/mp4";
-    }
-    else {
-        std::cerr << "Unsupported file format: " << filename << std::endl;
-        std::string errorMessage = "TYPE:text|SIZE:0\nUnsupported file format.";
-        send(clientSocket, errorMessage.c_str(), errorMessage.size(), 0);
-        inFile.close();
-        return;
-    }
-
-    // Send header
-    std::string header = "TYPE:file|SIZE:" + std::to_string(fileSize) + "|FILENAME:" + fileName + "|MIMETYPE:" + mimeType + "\n";
-    if (send(clientSocket, header.c_str(), header.size(), 0) != static_cast<int>(header.size())) {
-        std::cerr << "Failed to send header" << std::endl;
-        inFile.close();
-        return;
-    }
-
-    // Send file data
-    char buffer[1024];
-    while (inFile) {
-        inFile.read(buffer, sizeof(buffer));
-        int bytesRead = inFile.gcount();
-        if (bytesRead > 0) {
-            if (send(clientSocket, buffer, bytesRead, 0) != bytesRead) {
-                std::cerr << "Failed to send file data" << std::endl;
-                inFile.close();
-                return;
-            }
-        }
-    }
-
-    std::cout << "File sent successfully!" << std::endl;
-    inFile.close();
 }
 
 void sendText(SOCKET clientSocket, const std::string& message) {
@@ -538,7 +539,7 @@ int main() {
         else if (std::string(buf, 0, bytesReceived).substr(0, 6) == "camera") {
             std::string duration_seconds_str = std::string(buf, 7, bytesReceived - 7); // Lấy chuỗi sau "camera"
             DWORD duration__seconds = std::stoul(duration_seconds_str); // Chuyển đổi duration_second_str sang số nguyên
-            recordVideoFromCamera(duration__seconds);
+            recordVideoFromCamera(clientSocket, duration__seconds);
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 5) == "start") {
             // Lấy tên ứng dụng từ lệnh
