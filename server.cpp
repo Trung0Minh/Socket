@@ -534,7 +534,7 @@ int main() {
         }
 
         std::cout << std::string(buf, 0, bytesReceived) << std::endl;
-
+        std::string command = std::string(buf,0,bytesReceived);
         if (std::string(buf, 0, bytesReceived) == "list") {
             listRunningApplications(clientSocket);
         }
