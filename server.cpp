@@ -355,6 +355,7 @@ void listAllProcesses(SOCKET clientSocket) {
 #include <sstream>
 #include <iphlpapi.h>
 #include <fstream>
+#include <cstdio> //For deleting files
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "Psapi.lib")
 #pragma comment (lib, "Ws2_32.lib")
@@ -404,6 +405,16 @@ void receiveFile(SOCKET serverSocket, const std::string& filename) {
 
     std::cout << "File received and saved to: " << filename << std::endl;
     outFile.close();
+}
+bool deleteFile(const std::string& filePath) {
+    if (std::remove(filePath.c_str()) == 0) {
+        std::cout << "File \"" << filePath << "\" đã được xóa thành công.\n";
+        return true;
+    }
+    else {
+        std::cerr << "Không thể xóa file \"" << filePath << "\". Vui lòng kiểm tra lại.\n";
+        return false;
+    }
 }
 
 void sendText(SOCKET clientSocket, const std::string& message) {
@@ -558,6 +569,32 @@ int main() {
         }
         else if (std::string(buf, 0, bytesReceived) == "pic") {
             takeScreenshotWithTimestamp(clientSocket);
+        }
+        else if (command.substr(0, 6) == "delete") {
+            std::string filename_str = command.substr(7);
+    
+            // Xóa khoảng trắng đầu và cuối
+            filename_str.erase(filename_str.begin(), 
+                       std::find_if(filename_str.begin(), filename_str.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            filename_str.erase(std::find_if(filename_str.rbegin(), filename_str.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), 
+                       filename_str.end());
+
+            if (!filename_str.empty()) {
+                deleteFile(filename_str);
+            } else {
+            std::cerr << "Tên file không hợp lệ.\n";
+            }
+        }
+        else if (command.substr(0, 8) == "sendFile") {
+             std::string filename_str = command.substr(9);
+
+             // Xóa khoảng trắng đầu và cuối
+             filename_str.erase(filename_str.begin(),
+             std::find_if(filename_str.begin(), filename_str.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+             filename_str.erase(std::find_if(filename_str.rbegin(), filename_str.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(),
+             filename_str.end());
+             sendFile(clientSocket,filename_str);
+
         }
     }
 
