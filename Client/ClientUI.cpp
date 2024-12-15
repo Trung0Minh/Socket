@@ -9,7 +9,7 @@ ClientUI::ClientUI()
     client = new Client();
     // Set log callback ngay sau khi tạo client
     client->setLogCallback([this](const std::string& message) {
-        AddLogMessage(wxString::FromUTF8(message));
+        ProcessLogMessage(wxString::FromUTF8(message));
         });
 
     isCompleted = false;
@@ -149,20 +149,29 @@ void ClientUI::OnCompleteClick(wxCommandEvent& event) {
 
 // Handles server disconnection
 void ClientUI::HandleServerDisconnect(const wxString& ip) {
+    // Tìm và xóa server khỏi danh sách
     auto it = std::find_if(connectedServers.begin(), connectedServers.end(),
         [&ip](const auto& pair) { return pair.first == ip; });
 
     if (it != connectedServers.end()) {
         connectedServers.erase(it);
-        UpdateServerList();
 
+        // Cập nhật UI
+        UpdateServerList();
+        AddLogMessage("Server disconnected: " + ip);
+
+        // Nếu không còn server nào và đã trong trạng thái completed
         if (connectedServers.empty() && isCompleted) {
             isCompleted = false;
-            EnableConnectionControls(true);
+            CallAfter([this]() {
+                EnableConnectionControls(true);
+                });
         }
     }
 
-    disconnectButton->Enable(false);
+    CallAfter([this]() {
+        disconnectButton->Enable(false);
+        });
 }
 
 // Handles disconnect button click event
@@ -205,6 +214,21 @@ void ClientUI::OnClose(wxCloseEvent& event) {
 // Timer event handler to update log area
 void ClientUI::OnTimer(wxTimerEvent& event) {
     UpdateLogArea();
+
+    // Định kỳ kiểm tra các server đã kết nối
+    if (client && !connectedServers.empty()) {
+        for (auto it = connectedServers.begin(); it != connectedServers.end();) {
+            wxString ip = it->first;
+            if (!client->isConnected()) {
+                // Nếu mất kết nối, xử lý ngay
+                HandleServerDisconnect(ip);
+                it = connectedServers.begin(); // Reset iterator vì vector đã thay đổi
+            }
+            else {
+                ++it;
+            }
+        }
+    }
 }
 
 // Adds a log message to the log queue
@@ -258,4 +282,22 @@ void ClientUI::UpdateServerList() {
 bool ClientUI::IsServerConnected(const wxString& ip) {
     return std::any_of(connectedServers.begin(), connectedServers.end(),
         [&ip](const auto& pair) { return pair.first == ip; });
+}
+
+void ClientUI::ProcessLogMessage(const wxString& message) {
+    // Xử lý các status message đặc biệt
+    if (message.StartsWith(wxT("STATUS:"))) {
+        wxString connectionLostPrefix = wxT("STATUS:CONNECTION_LOST:");
+        if (message.StartsWith(connectionLostPrefix)) {
+            wxString ip = message.Mid(connectionLostPrefix.Length());
+            CallAfter([this, ip]() {
+                HandleServerDisconnect(ip);
+                });
+            return;
+        }
+    }
+
+    // Log message bình thường
+    std::lock_guard<std::mutex> lock(logMutex);
+    logMessages.push_back(wxDateTime::Now().FormatTime() + wxT(": ") + message);
 }

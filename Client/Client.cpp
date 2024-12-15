@@ -141,13 +141,12 @@ bool Client::receiveData(std::string& response) {
         return false;
     }
 
-    const int DEFAULT_BUFLEN = 1024 * 1024 * 10; // 5MB
-    char* buffer = new char[DEFAULT_BUFLEN]; // Cấp phát bộ đệm trên heap
+    std::vector<char> buffer(DEFAULT_BUFLEN);
 
-    int bytesReceived = clientSocket->Receive(buffer, DEFAULT_BUFLEN);
+    int bytesReceived = clientSocket->Receive(buffer.data(), DEFAULT_BUFLEN);
 
     if (bytesReceived > 0) {
-        response.assign(buffer, bytesReceived);
+        response.assign(buffer.data(), bytesReceived);
         return true;
     }
     else if (bytesReceived == 0) {
@@ -168,8 +167,25 @@ bool Client::executeCommand(const std::string& serverIP,
     const std::string& senderEmail) {
 
     try {
+        // Kiểm tra nếu đang kết nối tới một server khác
+        if (isConnected() && currentServerIP != serverIP) {
+            std::string errorMsg = "Error: Command intended for server " + serverIP +
+                " but currently connected to " + currentServerIP;
+            log(errorMsg);
+            response = errorMsg;
+            return false;
+        }
+
+        // Nếu chưa kết nối hoặc kết nối đến đúng server
         if (!isConnected()) {
             if (!connect(serverIP)) {
+                std::string errorMsg = "Failed to connect to server " + serverIP;
+                log(errorMsg);
+                response = errorMsg;
+
+                if (!senderEmail.empty()) {
+                    sendEmail(senderEmail, "Command Execution Failed", errorMsg);
+                }
                 return false;
             }
         }
@@ -217,7 +233,7 @@ bool Client::sendEmail(const std::string& to,
 
 bool Client::start(const std::string& serverIP) {
     if (!isConnected()) {
-        if (!connect(serverIP, "54000")) {
+        if (!connect(serverIP, DEFAULT_PORT)) {
             log("Failed to connect during startup");
             return false;
         }
@@ -244,8 +260,6 @@ void Client::stop() {
 }
 
 void Client::checkConnection() {
-    const int CHECK_INTERVAL = 1; // Check every 1 second
-
     while (connectionCheckRunning) {
         if (isConnected()) {
             // Optionally, you can send a keep-alive message to the server here
@@ -255,12 +269,10 @@ void Client::checkConnection() {
         }
         else {
             if (!connectionLostLogged) {
-                //log("Connection to server lost");
-                connectionLostLogged = true; // Đặt biến trạng thái khi kết nối bị mất
-                // Thông báo cho ClientUI
                 if (logCallback) {
-                    logCallback("ConnectionLost:" + currentServerIP);
+                    logCallback("STATUS:CONNECTION_LOST:" + currentServerIP);  // Format rõ ràng hơn
                 }
+                connectionLostLogged = true;
             }
             disconnect();
             std::this_thread::sleep_for(std::chrono::seconds(CHECK_INTERVAL));

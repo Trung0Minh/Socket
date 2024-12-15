@@ -6,7 +6,7 @@
 
 class Auth {
 public:
-    Auth(const std::string& credentialsFile, const std::string& tokenFile);
+    Auth(const std::string& credentialsFile, const std::string& tokenFile = "");
     bool authenticate();
     bool hasValidToken();
     std::string getAuthUrl() const;  // Method mới để lấy URL xác thực

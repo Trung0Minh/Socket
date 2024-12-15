@@ -31,7 +31,11 @@ private:
     bool running;
     std::atomic<bool> connectionCheckRunning;
     std::thread connectionCheckThread;
-    std::atomic<bool> connectionLostLogged; // Biến trạng thái để theo dõi thông báo đã được in hay chưa
+    std::atomic<bool> connectionLostLogged;
+
+    const int CHECK_INTERVAL = 1;
+    const int DEFAULT_BUFLEN = 1024 * 1024 * 10;
+    const std::string DEFAULT_PORT = "54000";
 
     // Helper function for logging
     void log(const std::string& message);

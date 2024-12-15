@@ -6,11 +6,13 @@
 #include <condition_variable>
 #include "json.hpp"
 #include "returnToken.h"
+#include "Config.h"
 
 class EmailMonitor {
 public:
     using EmailCallback = std::function<void(const std::string&, const std::string&, const std::string&)>;
     using CommandExecutor = std::function<bool(const std::string&, const std::string&, std::string&, const std::string&)>;
+    
 
 private:
     struct EmailContent {
@@ -40,8 +42,6 @@ private:
     bool markEmailAsRead(const std::string& emailId);
     EmailContent parseEmailContent(const nlohmann::json& emailData);
     void processEmail(const std::string& emailId);
-
-    std::string dummyResponse;
 
 public:
     EmailMonitor();

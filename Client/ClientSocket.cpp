@@ -2,6 +2,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <sstream>
 
 ClientSocket::ClientSocket()
     : connectSocket(INVALID_SOCKET)
@@ -26,7 +27,7 @@ ClientSocket::~ClientSocket() {
 bool ClientSocket::initializeWinsock() {
     int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (iResult != 0) {
-        logError("WSAStartup failed");
+        log("WSAStartup failed");
         return false;
     }
     return true;
@@ -41,7 +42,7 @@ bool ClientSocket::createSocket(const char* address, const char* port, int famil
     hints.ai_family = family;
     int iResult = getaddrinfo(address, port, &hints, &result);
     if (iResult != 0) {
-        logError("getaddrinfo failed");
+        log("getaddrinfo failed");
         return false;
     }
 
@@ -49,7 +50,7 @@ bool ClientSocket::createSocket(const char* address, const char* port, int famil
     for (ptr = result; ptr != nullptr; ptr = ptr->ai_next) {
         connectSocket = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
         if (connectSocket == INVALID_SOCKET) {
-            logError("Socket creation failed");
+            log("Socket creation failed");
             continue;
         }
         break;
@@ -79,7 +80,7 @@ bool ClientSocket::connectToServer() {
 
     int iResult = connect(connectSocket, ptr->ai_addr, (int)ptr->ai_addrlen);
     if (iResult == SOCKET_ERROR) {
-        logError("Connection failed");
+        log("Connection failed");
         closesocket(connectSocket);
         connectSocket = INVALID_SOCKET;
         freeAddrInfo();
@@ -146,7 +147,7 @@ bool ClientSocket::Send(const char* data, int length) {
                 }
                 continue;
             }
-            logError("Send failed");
+            log("Send failed");
             Close();
             return false;
         }
@@ -169,7 +170,7 @@ int ClientSocket::Receive(char* outputBuffer, int bufferSize) {
     while (!foundNewline) {
         int result = recv(connectSocket, &headerByte, 1, 0);
         if (result <= 0) {
-            logError("Failed to receive header");
+            log("Failed to receive header");
             return -1;
         }
         if (headerByte == '\n') {
@@ -181,7 +182,7 @@ int ClientSocket::Receive(char* outputBuffer, int bufferSize) {
     // Parse header
     size_t sizePos = headerStr.find("SIZE:");
     if (sizePos == std::string::npos) {
-        logError("Invalid header format: no SIZE field");
+        log("Invalid header format: no SIZE field");
         return -1;
     }
 
@@ -195,13 +196,13 @@ int ClientSocket::Receive(char* outputBuffer, int bufferSize) {
         dataSize = std::stoi(sizeStr);
     }
     catch (...) {
-        logError("Invalid size format in header");
+        log("Invalid size format in header");
         return -1;
     }
 
     // Kiểm tra kích thước buffer
     if (dataSize + headerStr.size() > bufferSize) {
-        logError("Received data size exceeds buffer capacity");
+        log("Received data size exceeds buffer capacity");
         return -1;
     }
 
@@ -218,13 +219,14 @@ int ClientSocket::Receive(char* outputBuffer, int bufferSize) {
             0);
 
         if (bytesReceived <= 0) {
-            logError("Failed to receive file data");
+            log("Failed to receive file data");
             return -1;
         }
         totalReceived += bytesReceived;
     }
-
-    std::cout << "Data received successfully! Size: " << totalReceived << " bytes" << std::endl;
+    std::stringstream ss;
+    ss << "Data received successfully! Size: " << totalReceived << " bytes" << std::endl;
+    log(ss.str());
     return totalReceived;
 }
 
@@ -289,11 +291,8 @@ void ClientSocket::freeAddrInfo() {
     }
 }
 
-void ClientSocket::logError(const char* message) {
+void ClientSocket::log(const std::string& message) {
     if (logCallback) {
-        logCallback(std::string(message) + " Error: " + std::to_string(WSAGetLastError()));
-    }
-    else {
-        std::cerr << message << " Error: " << WSAGetLastError() << std::endl;
+        logCallback(message);
     }
 }

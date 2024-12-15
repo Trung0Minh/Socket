@@ -24,7 +24,7 @@ EmailMonitor::EmailMonitor() :
     running(false),
     callback(nullptr),
     logCallback(nullptr),
-    commandExecutor(nullptr) {
+    commandExecutor(nullptr){
 }
 
 EmailMonitor::~EmailMonitor() {
@@ -33,7 +33,10 @@ EmailMonitor::~EmailMonitor() {
 
 void EmailMonitor::start() {
     if (!running) {
-        std::ifstream tokenFile("token.json");
+        Config* config = Config::getInstance();
+        std::string tokenFilePath = config->getTokenFile();
+
+        std::ifstream tokenFile(tokenFilePath);
         if (!tokenFile.is_open()) {
             log("Error: Cannot open token.json. Please ensure the file exists and has correct permissions");
             return;

@@ -2,13 +2,13 @@
 #include "AuthUI.h"
 #include <wx/clipbrd.h>
 
-BEGIN_EVENT_TABLE(AuthDialog, wxDialog)
-EVT_BUTTON(wxID_OK, AuthDialog::OnOK)
-EVT_BUTTON(wxID_CANCEL, AuthDialog::OnCancel)
-EVT_BUTTON(wxID_COPY, AuthDialog::OnCopyUrl)
+BEGIN_EVENT_TABLE(AuthUI, wxDialog)
+EVT_BUTTON(wxID_OK, AuthUI::OnOK)
+EVT_BUTTON(wxID_CANCEL, AuthUI::OnCancel)
+EVT_BUTTON(wxID_COPY, AuthUI::OnCopyUrl)
 END_EVENT_TABLE()
 
-AuthDialog::AuthDialog(wxWindow* parent, const wxString& authUrl)
+AuthUI::AuthUI(wxWindow* parent, const wxString& authUrl)
     : wxDialog(parent, wxID_ANY, "Authorization Required",
         wxDefaultPosition, wxSize(600, 300))
 {
@@ -16,7 +16,7 @@ AuthDialog::AuthDialog(wxWindow* parent, const wxString& authUrl)
     Center();
 }
 
-void AuthDialog::CreateControls(const wxString& authUrl)
+void AuthUI::CreateControls(const wxString& authUrl)
 {
     wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
 
@@ -68,7 +68,7 @@ void AuthDialog::CreateControls(const wxString& authUrl)
     SetSizer(mainSizer);
 }
 
-void AuthDialog::OnOK(wxCommandEvent& event)
+void AuthUI::OnOK(wxCommandEvent& event)
 {
     authorizationCode = authCodeInput->GetValue().ToStdString();
     if (authorizationCode.empty()) {
@@ -79,12 +79,12 @@ void AuthDialog::OnOK(wxCommandEvent& event)
     EndModal(wxID_OK);
 }
 
-void AuthDialog::OnCancel(wxCommandEvent& event)
+void AuthUI::OnCancel(wxCommandEvent& event)
 {
     EndModal(wxID_CANCEL);
 }
 
-void AuthDialog::OnCopyUrl(wxCommandEvent& event)
+void AuthUI::OnCopyUrl(wxCommandEvent& event)
 {
     if (wxTheClipboard->Open()) {
         auto data = new wxTextDataObject();

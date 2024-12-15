@@ -29,7 +29,7 @@ private:
     bool createSocket(const char* address, const char* port, int family);
     bool connectToServer();
     void freeAddrInfo();
-    void logError(const char* message);
+    void log(const std::string& message);
 
 public:
     ClientSocket();

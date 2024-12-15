@@ -50,6 +50,7 @@ private:
     void UpdateServerList();
     bool IsServerConnected(const wxString& ip);
     void HandleServerDisconnect(const wxString& ip);
+    void ProcessLogMessage(const wxString& message);
 
     wxStaticBox* serverListBox;
     wxStaticBox* connectionBox;

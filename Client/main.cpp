@@ -7,7 +7,7 @@ class ClientApplication : public wxApp {
 public:
     virtual bool OnInit() {
         // Khởi tạo Auth
-        Auth auth("credentials.json", "token.json");
+        Auth auth("credentials.json");
 
         try {
             // Kiểm tra xem đã authorize chưa

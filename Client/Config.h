@@ -21,4 +21,7 @@ public:
     const std::string TOKEN_FILE;
     const std::string CLIENT_ID;
     const std::string CLIENT_SECRET;
+
+    // Phương thức để lấy giá trị TOKEN_FILE
+    std::string getTokenFile() const;
 };

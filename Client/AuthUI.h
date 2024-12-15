@@ -8,9 +8,9 @@
 #include <wx/hyperlink.h>  // Thêm include cho wxHyperlinkCtrl
 #include <string>
 
-class AuthDialog : public wxDialog {
+class AuthUI : public wxDialog {
 public:
-    AuthDialog(wxWindow* parent, const wxString& authUrl);
+    AuthUI(wxWindow* parent, const wxString& authUrl);
     std::string GetAuthorizationCode() const { return authorizationCode; }
 
 private:

@@ -4,6 +4,7 @@
 #include <curl/curl.h>
 #include "json.hpp"
 #include "AuthUI.h"
+#include "Config.h"
 
 using json = nlohmann::json;
 
@@ -15,6 +16,13 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* s) 
 
 Auth::Auth(const std::string& credentialsFile, const std::string& tokenFile)
     : credentialsFile(credentialsFile), tokenFile(tokenFile) {
+    if (tokenFile.empty()) {
+        // Sử dụng giá trị mặc định từ Config
+        this->tokenFile = Config::getInstance()->getTokenFile();
+    }
+    else {
+        this->tokenFile = tokenFile;
+    }
     token = loadToken();
     if (!hasValidToken()) {
         nlohmann::json credentials = loadCredentials();
@@ -44,7 +52,7 @@ void Auth::requestAuthorizationCode() {
 
     // Tạo một temporary frame làm parent cho dialog
     wxFrame* tempFrame = new wxFrame(nullptr, wxID_ANY, "");
-    AuthDialog* dialog = new AuthDialog(tempFrame, wxString(authUrl));
+    AuthUI* dialog = new AuthUI(tempFrame, wxString(authUrl));
 
     if (dialog->ShowModal() == wxID_OK) {
         try {

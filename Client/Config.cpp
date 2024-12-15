@@ -16,3 +16,7 @@ Config* Config::getInstance() {
     }
     return instance;
 }
+
+std::string Config::getTokenFile() const {
+    return TOKEN_FILE;
+}
