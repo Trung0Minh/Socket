@@ -289,13 +289,19 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
         return;
     }
 
+    // Lấy FPS thực tế từ camera
+    double actualFPS = camera.get(cv::CAP_PROP_FPS);
+    if (actualFPS <= 0) {
+        actualFPS = 30; // Giá trị mặc định nếu camera không cung cấp thông tin FPS
+    }
+
     std::string filename = "Record_" + getCurrentTimestamp() + ".mp4";
     int frameWidth = static_cast<int>(camera.get(cv::CAP_PROP_FRAME_WIDTH));
     int frameHeight = static_cast<int>(camera.get(cv::CAP_PROP_FRAME_HEIGHT));
     cv::Size frameSize(frameWidth, frameHeight);
 
-    // Tạo đối tượng VideoWriter để lưu video tại filename
-    cv::VideoWriter videoWriter(filename, cv::VideoWriter::fourcc('H', '2', '6', '4'), 30, frameSize);
+    // Tạo đối tượng VideoWriter
+    cv::VideoWriter videoWriter(filename, cv::VideoWriter::fourcc('H', '2', '6', '4'), actualFPS, frameSize);
 
     if (!videoWriter.isOpened()) {
         std::cerr << "Could not open the video writer." << std::endl;
@@ -304,7 +310,8 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
 
     std::cout << "Recording video..." << std::endl;
 
-    int frameCount = duration_seconds * 30; // 30 FPS (số khung hình mỗi giây)
+    int frameCount = static_cast<int>(duration_seconds * actualFPS); // Tính số khung hình cần ghi
+    auto startTime = std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < frameCount; ++i) {
         cv::Mat frame;
@@ -317,7 +324,16 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
         videoWriter.write(frame); // Ghi khung hình vào file video
         cv::imshow("Recording...", frame);
 
-        if (cv::waitKey(33) == 27) { // Nhấn 'Esc' để dừng sớm
+        // Kiểm soát thời gian giữa các khung hình
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> elapsed = currentTime - startTime;
+        int delay = static_cast<int>((1000.0 / actualFPS) - elapsed.count());
+        if (delay > 0) {
+            cv::waitKey(delay);
+        }
+        startTime = std::chrono::high_resolution_clock::now();
+
+        if (cv::waitKey(1) == 27) { // Nhấn 'Esc' để dừng sớm
             break;
         }
     }
@@ -328,6 +344,7 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
     std::cout << "Video recording completed and saved at " << filename << std::endl;
     sendFile(clientSocket, filename);
 }
+
 void listAllProcesses(SOCKET clientSocket) {
     // Tạo ảnh chụp nhanh tất cả các tiến trình đang chạy
     HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
