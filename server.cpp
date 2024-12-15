@@ -20,6 +20,15 @@
 #include <ctime>
 #include <gdiplus.h>
 #include <opencv2/opencv.hpp>
+#include <winsock2.h>
+#include <psapi.h>
+#include <ws2tcpip.h>
+#include <tlhelp32.h>
+#include <iphlpapi.h>
+#include <fstream>
+#pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "Psapi.lib")
+#pragma comment (lib, "Ws2_32.lib")
 
 std::wstring convertToWString(const CHAR* str) {
     size_t len = strlen(str) + 1;
@@ -248,6 +257,17 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
     inFile.close();
 }
 
+bool deleteFile(const std::string& filePath) {
+    if (std::remove(filePath.c_str()) == 0) {
+        std::cout << "File \"" << filePath << "\" đã được xóa thành công.\n";
+        return true;
+    }
+    else {
+        std::cerr << "Không thể xóa file \"" << filePath << "\". Vui lòng kiểm tra lại.\n";
+        return false;
+    }
+}
+
 std::string getCurrentTimestamp() {
     std::time_t t = std::time(nullptr);
     std::tm tm;
@@ -343,21 +363,6 @@ void listAllProcesses(SOCKET clientSocket) {
     CloseHandle(hProcessSnap);
 }
 
-
-//Duy
-#include <windows.h>
-#include <winsock2.h>
-#include <psapi.h>
-#include <iostream>
-#include <ws2tcpip.h>
-#include <tlhelp32.h>
-#include <string>
-#include <sstream>
-#include <iphlpapi.h>
-#include <fstream>
-#pragma comment(lib, "iphlpapi.lib")
-#pragma comment(lib, "Psapi.lib")
-#pragma comment (lib, "Ws2_32.lib")
 void saveIPListToFile(const std::string& filename) {
     ULONG bufferSize = 0;
     GetAdaptersAddresses(AF_INET, 0, nullptr, nullptr, &bufferSize);
@@ -559,7 +564,27 @@ int main() {
         else if (std::string(buf, 0, bytesReceived) == "pic") {
             takeScreenshotWithTimestamp(clientSocket);
         }
-    }
+        else if (std::string(buf, 0, bytesReceived).substr(0, 7) == "sendfile") {
+            std::string filename_str = std::string(buf, 8, bytesReceived - 8);
+            // Xóa khoảng trắng đầu và cuối
+            filename_str.erase(filename_str.begin(), std::find_if(filename_str.begin(), filename_str.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            filename_str.erase(std::find_if(filename_str.rbegin(), filename_str.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), filename_str.end());
+            sendFile(clientSocket, filename_str);
+        }
+        else if (std::string(buf, 0, bytesReceived).substr(0, 5) == "delete") {
+            std::string filename_str = std::string(buf, 6, bytesReceived - 6);
+
+            // Xóa khoảng trắng đầu và cuối
+            filename_str.erase(filename_str.begin(), std::find_if(filename_str.begin(), filename_str.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            filename_str.erase(std::find_if(filename_str.rbegin(), filename_str.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), filename_str.end());
+
+            if (!filename_str.empty()) {
+                deleteFile(filename_str);
+            }
+            else {
+                std::cerr << "Tên file không hợp lệ.\n";
+            }
+        }
 
     // Close the client socket
     closesocket(clientSocket);
