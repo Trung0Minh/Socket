@@ -564,15 +564,15 @@ int main() {
         else if (std::string(buf, 0, bytesReceived) == "pic") {
             takeScreenshotWithTimestamp(clientSocket);
         }
-        else if (std::string(buf, 0, bytesReceived).substr(0, 7) == "sendfile") {
-            std::string filename_str = std::string(buf, 8, bytesReceived - 8);
+        else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "sendfile") {
+            std::string filename_str = std::string(buf, 9, bytesReceived - 9);
             // Xóa khoảng trắng đầu và cuối
             filename_str.erase(filename_str.begin(), std::find_if(filename_str.begin(), filename_str.end(), [](unsigned char ch) { return !std::isspace(ch); }));
             filename_str.erase(std::find_if(filename_str.rbegin(), filename_str.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), filename_str.end());
             sendFile(clientSocket, filename_str);
         }
-        else if (std::string(buf, 0, bytesReceived).substr(0, 5) == "delete") {
-            std::string filename_str = std::string(buf, 6, bytesReceived - 6);
+        else if (std::string(buf, 0, bytesReceived).substr(0, 6) == "delete") {
+            std::string filename_str = std::string(buf, 7, bytesReceived - 7);
 
             // Xóa khoảng trắng đầu và cuối
             filename_str.erase(filename_str.begin(), std::find_if(filename_str.begin(), filename_str.end(), [](unsigned char ch) { return !std::isspace(ch); }));
