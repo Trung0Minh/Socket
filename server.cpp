@@ -40,166 +40,6 @@ std::wstring convertToWString(const CHAR* str) {
     return wresult;
 }
 
-void listRunningApplications(SOCKET clientSocket) {
-    std::set<std::pair<std::wstring, DWORD>> appDetails;
-
-    // Tạo snapshot của tất cả các tiến trình đang chạy
-    HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hProcessSnap == INVALID_HANDLE_VALUE) {
-        std::string result = "Failed to create process snapshot.";
-        send(clientSocket, result.c_str(), result.length(), 0);
-        return;
-    }
-
-    PROCESSENTRY32 pe32;
-    pe32.dwSize = sizeof(PROCESSENTRY32);
-
-    // Lấy thông tin về tiến trình đầu tiên
-    if (!Process32First(hProcessSnap, &pe32)) {
-        std::string result = "Failed to retrieve information about the first process.";
-        send(clientSocket, result.c_str(), result.length(), 0);
-        CloseHandle(hProcessSnap);
-        return;
-    }
-
-    do {
-        // Mở tiến trình để kiểm tra cửa sổ của nó
-        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pe32.th32ProcessID);
-        if (hProcess) {
-            HWND hWnd = GetTopWindow(NULL);
-            while (hWnd) {
-                DWORD processID;
-                GetWindowThreadProcessId(hWnd, &processID);
-                // Kiểm tra nếu cửa sổ thuộc về tiến trình và cửa sổ có giao diện người dùng
-                if (processID == pe32.th32ProcessID && GetWindow(hWnd, GW_OWNER) == NULL && IsWindowVisible(hWnd)) {
-                    appDetails.insert({ convertToWString(pe32.szExeFile), pe32.th32ProcessID });
-                    break; // Nếu tìm thấy cửa sổ, không cần duyệt tiếp các cửa sổ khác của tiến trình này
-                }
-                hWnd = GetNextWindow(hWnd, GW_HWNDNEXT);
-            }
-            CloseHandle(hProcess);
-        }
-    } while (Process32Next(hProcessSnap, &pe32));
-
-    CloseHandle(hProcessSnap);
-
-    // In ra danh sách các ứng dụng với ID
-    std::string result = "List of running applications:\n";
-    int cnt = 1;
-    for (const auto& app : appDetails) {
-        result += std::to_string(cnt++) + ". " + std::string(app.first.begin(), app.first.end()) + " (ID: " + std::to_string(app.second) + ")\n";
-    }
-    send(clientSocket, result.c_str(), result.length() - 1, 0);
-}
-
-// pop up cua so ung dung da mo
-void openApplicationById(DWORD processId) {
-    HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (hProcessSnap == INVALID_HANDLE_VALUE) {
-        std::cerr << "Failed to create process snapshot." << std::endl;
-        return;
-    }
-
-    PROCESSENTRY32 pe32;
-    pe32.dwSize = sizeof(PROCESSENTRY32);
-
-    if (!Process32First(hProcessSnap, &pe32)) {
-        std::cerr << "Failed to retrieve information about the first process." << std::endl;
-        CloseHandle(hProcessSnap);
-        return;
-    }
-
-    do {
-        if (pe32.th32ProcessID == processId) {
-            // Mở ứng dụng
-            std::wstring appPath = convertToWString(pe32.szExeFile);
-            ShellExecuteW(NULL, L"open", appPath.c_str(), NULL, NULL, SW_SHOWNORMAL); // Sử dụng ShellExecuteW
-            CloseHandle(hProcessSnap);
-            return;
-        }
-    } while (Process32Next(hProcessSnap, &pe32));
-
-    std::cout << "Application with ID " << processId << " not found." << std::endl;
-    CloseHandle(hProcessSnap);
-}
-
-void startApplicationByName(const std::wstring& appName, SOCKET clientSocket) {
-    // Nếu ứng dụng không có đuôi .exe, thêm vào
-    std::wstring appNameWithExe = appName;
-    if (appNameWithExe.find(L".exe") == std::wstring::npos) {
-        appNameWithExe += L".exe";
-    }
-
-    // Gọi ứng dụng trực tiếp với ShellExecuteW
-    HINSTANCE result = ShellExecuteW(NULL, L"open", appNameWithExe.c_str(), NULL, NULL, SW_SHOWNORMAL);
-    std::string result1 = (int)result <= 32 ? "Failed to start application \"" + std::string(appNameWithExe.begin(), appNameWithExe.end()) + "\". Error code: " + std::to_string((int)result) + '\n' : "Successfully started application \"" + std::string(appNameWithExe.begin(), appNameWithExe.end()) + "\".\n";
-    send(clientSocket, result1.c_str(), result1.length() - 1, 0);
-}
-
-void closeApplicationById(DWORD processId, SOCKET clientSocket) {
-    // Mở quá trình với quyền terminate
-    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, processId);
-    if (hProcess == NULL) {
-        std::string errorMessage = "Unable to open process with ID " + std::to_string(processId) + ". Error: " + std::to_string(GetLastError()) + '\n';
-        send(clientSocket, errorMessage.c_str(), errorMessage.length(), 0);
-        std::cerr << errorMessage;
-        return;
-    }
-
-    // Đóng quá trình
-    if (TerminateProcess(hProcess, 0) == 0) {
-        std::string errorMessage = "Failed to terminate process with ID " + std::to_string(processId) + ". Error: " + std::to_string(GetLastError()) + '\n';
-        send(clientSocket, errorMessage.c_str(), errorMessage.length(), 0);
-        std::cerr << errorMessage;
-        CloseHandle(hProcess);
-        return;
-    }
-
-    CloseHandle(hProcess);
-    std::string successMessage = "Successfully closed the application with ID " + std::to_string(processId) + ".\n";
-    send(clientSocket, successMessage.c_str(), successMessage.length() - 1, 0);
-    std::cout << successMessage;
-}
-
-void shutdownComputer() {
-    // Kiểm tra quyền tắt máy
-    HANDLE hToken;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-        std::cerr << "Error opening process token. Error: " << GetLastError() << std::endl;
-        return;
-    }
-
-    TOKEN_PRIVILEGES tp;
-    LUID luid;
-
-    // Lấy giá trị LUID cho quyền tắt máy
-    if (!LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &luid)) {
-        std::cerr << "Error looking up privilege value. Error: " << GetLastError() << std::endl;
-        CloseHandle(hToken);
-        return;
-    }
-
-    tp.PrivilegeCount = 1;
-    tp.Privileges[0].Luid = luid; // Gán giá trị LUID vào quyền
-    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-
-    if (AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL) == 0) {
-        std::cerr << "Error adjusting token privileges. Error: " << GetLastError() << std::endl;
-        CloseHandle(hToken);
-        return;
-    }
-
-    CloseHandle(hToken);
-
-    // Thực hiện tắt máy
-    if (!ExitWindowsEx(EWX_SHUTDOWN | EWX_FORCE, SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_FLAG_PLANNED)) {
-        std::cerr << "Error shutting down the computer. Error: " << GetLastError() << std::endl;
-    }
-    else {
-        std::cout << "Shutting down the computer..." << std::endl;
-    }
-}
-
 void sendFile(SOCKET clientSocket, const std::string& filename) {
     std::ifstream inFile(filename, std::ios::binary | std::ios::ate);
     if (!inFile) {
@@ -217,11 +57,24 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
     size_t lastSlash = filename.find_last_of("/\\");
     std::string fileName = (lastSlash != std::string::npos) ? filename.substr(lastSlash + 1) : filename;
     std::string mimeType;
-    if (fileName.size() >= 4 && fileName.compare(fileName.size() - 4, 4, ".png") == 0) {
+
+    // Get file extension
+    size_t lastDot = fileName.find_last_of(".");
+    std::string extension = (lastDot != std::string::npos) ? fileName.substr(lastDot) : "";
+
+    // Convert extension to lowercase for case-insensitive comparison
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+
+    // Check file extension and set appropriate MIME type
+    if (extension == ".png") {
         mimeType = "image/png";
     }
-    else if (fileName.size() >= 4 && fileName.compare(fileName.size() - 4, 4, ".mp4") == 0) {
+    else if (extension == ".mp4") {
         mimeType = "video/mp4";
+    }
+    // Add text file types
+    else if (extension == ".txt") {
+        mimeType = "text/plain";
     }
     else {
         std::cerr << "Unsupported file format: " << filename << std::endl;
@@ -257,6 +110,17 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
     inFile.close();
 }
 
+void sendText(SOCKET clientSocket, const std::string& message) {
+    // Send header
+    std::string header = "TYPE:text|SIZE:" + std::to_string(message.size()) + "\n";
+    send(clientSocket, header.c_str(), header.size(), 0);
+
+    // Send text content
+    send(clientSocket, message.c_str(), message.size(), 0);
+
+    std::cout << "Text sent successfully!" << std::endl;
+}
+
 bool deleteFile(const std::string& filePath) {
     if (std::remove(filePath.c_str()) == 0) {
         std::cout << "File \"" << filePath << "\" đã được xóa thành công.\n";
@@ -282,10 +146,164 @@ std::string getCurrentTimestamp() {
     return oss.str();
 }
 
+
+void listRunningApplications(SOCKET clientSocket) {
+    std::set<std::pair<std::wstring, DWORD>> appDetails;
+
+    // Tạo snapshot của tất cả các tiến trình đang chạy
+    HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hProcessSnap == INVALID_HANDLE_VALUE) {
+        std::string error = "Failed to create process snapshot.";
+        std::cerr << error << std::endl;
+        sendText(clientSocket, error);
+        return;
+    }
+
+    PROCESSENTRY32 pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+
+    // Lấy thông tin về tiến trình đầu tiên
+    if (!Process32First(hProcessSnap, &pe32)) {
+        std::string error = "Failed to retrieve information about the first process.";
+        std::cerr << error << std::endl;
+        CloseHandle(hProcessSnap);
+        return;
+    }
+
+    do {
+        // Mở tiến trình để kiểm tra cửa sổ của nó
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pe32.th32ProcessID);
+        if (hProcess) {
+            HWND hWnd = GetTopWindow(NULL);
+            while (hWnd) {
+                DWORD processID;
+                GetWindowThreadProcessId(hWnd, &processID);
+                // Kiểm tra nếu cửa sổ thuộc về tiến trình và cửa sổ có giao diện người dùng
+                if (processID == pe32.th32ProcessID && GetWindow(hWnd, GW_OWNER) == NULL && IsWindowVisible(hWnd)) {
+                    appDetails.insert({ convertToWString(pe32.szExeFile), pe32.th32ProcessID });
+                    break; // Nếu tìm thấy cửa sổ, không cần duyệt tiếp các cửa sổ khác của tiến trình này
+                }
+                hWnd = GetNextWindow(hWnd, GW_HWNDNEXT);
+            }
+            CloseHandle(hProcess);
+        }
+    } while (Process32Next(hProcessSnap, &pe32));
+
+    CloseHandle(hProcessSnap);
+
+    std::string filename = "Apllications_" + getCurrentTimestamp() + ".txt";
+    std::ofstream outFile(filename);
+
+    if (!outFile) {
+        std::string error = "Failed to create file";
+        std::cerr << error << std::endl;
+        sendText(clientSocket, error);
+        return;
+    }
+
+    // Lưu danh sách các ứng dụng với ID vào file txt
+    int cnt = 1;
+    for (const auto& app : appDetails) {
+       outFile << std::to_string(cnt++) + ". " << std::string(app.first.begin(), app.first.end()) << " (ID: " + std::to_string(app.second) + ")\n";
+    }
+
+    outFile.close();
+    sendFile(clientSocket, filename);
+    std::cout << "Successfully send list of running applications to client." << std::endl;
+}
+
+void startApplicationByName(const std::wstring& appName, SOCKET clientSocket) {
+    // Nếu ứng dụng không có đuôi .exe, thêm vào
+    std::wstring appNameWithExe = appName;
+    if (appNameWithExe.find(L".exe") == std::wstring::npos) {
+        appNameWithExe += L".exe";
+    }
+
+    // Gọi ứng dụng trực tiếp với ShellExecuteW
+    HINSTANCE result = ShellExecuteW(NULL, L"open", appNameWithExe.c_str(), NULL, NULL, SW_SHOWNORMAL);
+    std::string message = (int)result <= 32 ? "Failed to start application \"" + std::string(appNameWithExe.begin(), appNameWithExe.end()) + "\". Error code: " + std::to_string((int)result) + '\n' : "Successfully started application \"" + std::string(appNameWithExe.begin(), appNameWithExe.end()) + "\".\n";
+    sendText(clientSocket, message);
+
+    std::cout << message;
+}
+
+void closeApplicationById(DWORD processId, SOCKET clientSocket) {
+    // Mở quá trình với quyền terminate
+    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, processId);
+    if (hProcess == NULL) {
+        std::string errorMessage = "Unable to open process with ID " + std::to_string(processId) + ". Error: " + std::to_string(GetLastError());
+        std::cerr << errorMessage << std::endl;
+        sendText(clientSocket, errorMessage);
+        return;
+    }
+
+    // Đóng quá trình
+    if (TerminateProcess(hProcess, 0) == 0) {
+        std::string errorMessage = "Failed to terminate process with ID " + std::to_string(processId) + ". Error: " + std::to_string(GetLastError());
+        std::cerr << errorMessage << std::endl;
+        sendText(clientSocket, errorMessage);
+        CloseHandle(hProcess);
+        return;
+    }
+
+    CloseHandle(hProcess);
+    std::string successMessage = "Successfully closed the application with ID " + std::to_string(processId) + ".\n";
+    sendText(clientSocket, successMessage);
+    std::cout << successMessage;
+}
+
+void shutdownComputer(SOCKET clientSocket) {
+    // Kiểm tra quyền tắt máy
+    HANDLE hToken;
+    std::string errorMessage = "Error shutting down the computer.\n";
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+        std::cerr << "Error opening process token. Error: " << GetLastError() << std::endl;
+        sendText(clientSocket, errorMessage);
+        return;
+    }
+
+    TOKEN_PRIVILEGES tp;
+    LUID luid;
+
+    // Lấy giá trị LUID cho quyền tắt máy
+    if (!LookupPrivilegeValue(NULL, SE_SHUTDOWN_NAME, &luid)) {
+        std::cerr << "Error looking up privilege value. Error: " << GetLastError() << std::endl;
+        sendText(clientSocket, errorMessage);
+        CloseHandle(hToken);
+        return;
+    }
+
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Luid = luid; // Gán giá trị LUID vào quyền
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    if (AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL) == 0) {
+        std::cerr << "Error adjusting token privileges. Error: " << GetLastError() << std::endl;
+        sendText(clientSocket, errorMessage);
+        CloseHandle(hToken);
+        return;
+    }
+
+    CloseHandle(hToken);
+
+    // Thực hiện tắt máy
+    if (!ExitWindowsEx(EWX_SHUTDOWN | EWX_FORCE, SHTDN_REASON_MAJOR_SOFTWARE | SHTDN_REASON_FLAG_PLANNED)) {
+        std::cerr << "Error shutting down the computer. Error: " << GetLastError() << std::endl;
+        sendText(clientSocket, errorMessage);
+    }
+    else {
+        std::string successMessage = "Successfully shut down the computer.\n";
+        std::cout << "Shutting down the computer..." << std::endl;
+        sendText(clientSocket, successMessage);
+    }
+}
+
 void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
     cv::VideoCapture camera(0); // Mở camera mặc định (camera ID là 0)
     if (!camera.isOpened()) {
-        std::cerr << "Could not open the camera." << std::endl;
+        std::string error = "Could not open the camera.";
+        std::cerr << error << std::endl;
+        sendText(clientSocket, error);
         return;
     }
 
@@ -296,6 +314,7 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
     }
 
     std::string filename = "Record_" + getCurrentTimestamp() + ".mp4";
+
     int frameWidth = static_cast<int>(camera.get(cv::CAP_PROP_FRAME_WIDTH));
     int frameHeight = static_cast<int>(camera.get(cv::CAP_PROP_FRAME_HEIGHT));
     cv::Size frameSize(frameWidth, frameHeight);
@@ -304,11 +323,13 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
     cv::VideoWriter videoWriter(filename, cv::VideoWriter::fourcc('H', '2', '6', '4'), actualFPS, frameSize);
 
     if (!videoWriter.isOpened()) {
-        std::cerr << "Could not open the video writer." << std::endl;
+        std::string error = "Could not open the video writer.";
+        std::cerr << error << std::endl;
+        sendText(clientSocket, error);
         return;
     }
 
-    std::cout << "Recording video..." << std::endl;
+    std::cout << "Start recording video..." << std::endl;
 
     int frameCount = static_cast<int>(duration_seconds * actualFPS); // Tính số khung hình cần ghi
     auto startTime = std::chrono::high_resolution_clock::now();
@@ -317,7 +338,9 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
         cv::Mat frame;
         camera >> frame; // Đọc khung hình từ camera
         if (frame.empty()) {
-            std::cerr << "Failed to capture frame." << std::endl;
+            std::string error = "Failed to capture frame.";
+            std::cerr << error << std::endl;
+            sendText(clientSocket, error);
             break;
         }
 
@@ -332,10 +355,6 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
             cv::waitKey(delay);
         }
         startTime = std::chrono::high_resolution_clock::now();
-
-        if (cv::waitKey(1) == 27) { // Nhấn 'Esc' để dừng sớm
-            break;
-        }
     }
 
     camera.release();
@@ -343,14 +362,16 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
     cv::destroyAllWindows();
     std::cout << "Video recording completed and saved at " << filename << std::endl;
     sendFile(clientSocket, filename);
+    std::cout << "Successfully record the video and send to client." << std::endl;
 }
 
 void listAllProcesses(SOCKET clientSocket) {
     // Tạo ảnh chụp nhanh tất cả các tiến trình đang chạy
     HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hProcessSnap == INVALID_HANDLE_VALUE) {
-        std::string result = "Failed to create process snapshot.";
-        send(clientSocket, result.c_str(), result.length(), 0);
+        std::string error = "Failed to create process snapshot.";
+        std::cerr << error << std::endl;
+        sendText(clientSocket, error);
         return;
     }
 
@@ -359,36 +380,53 @@ void listAllProcesses(SOCKET clientSocket) {
 
     // Bắt đầu lấy danh sách tiến trình
     if (!Process32First(hProcessSnap, &pe32)) {
-        std::string result = "Failed to retrieve information about the first process.";
-        send(clientSocket, result.c_str(), result.length(), 0);
+        std::string error = "Failed to retrieve information about the first process.";
+        std::cerr << error << std::endl;
+        sendText(clientSocket, error);
         CloseHandle(hProcessSnap);
         return;
     }
 
-    // Lưu kết quả vào một chuỗi để gửi qua socket
-    std::string processList = "List of all running processes:\n";
+    std::string filename = "Services_" + getCurrentTimestamp() + ".txt";
+    std::ofstream outFile(filename);
+
+    if (!outFile) {
+        std::string error = "Failed to create file!";
+        std::cerr << error << std::endl;
+        sendText(clientSocket, error);
+        return;
+    }
+
+    // Lưu kết quả vào một file để gửi qua socket
     int count = 1;
 
     do {
-        processList += std::to_string(count++) + ". Process Name: " + std::string(pe32.szExeFile) +
-            ", PID: " + std::to_string(pe32.th32ProcessID) + "\n";
+        outFile << std::to_string(count++) + ". Process Name: " << std::string(pe32.szExeFile) <<
+            ", PID: " << std::to_string(pe32.th32ProcessID) << "\n";
     } while (Process32Next(hProcessSnap, &pe32));
+    outFile.close();
+
 
     // Gửi kết quả về client
-    send(clientSocket, processList.c_str(), processList.length() - 1, 0);
-
+    sendFile(clientSocket, filename);
     CloseHandle(hProcessSnap);
+
+    std::cout << "Successfully send list of services to client." << std::endl;
 }
 
-void saveIPListToFile(const std::string& filename) {
+void saveIPListToFile(SOCKET clientSocket) {
     ULONG bufferSize = 0;
     GetAdaptersAddresses(AF_INET, 0, nullptr, nullptr, &bufferSize);
 
     IP_ADAPTER_ADDRESSES* adapterAddresses = (IP_ADAPTER_ADDRESSES*)malloc(bufferSize);
+
+    std::string filename = "IP_" + getCurrentTimestamp() + ".txt";
     std::ofstream outFile(filename);
 
     if (!outFile) {
-        std::cerr << "Failed to create file!" << std::endl;
+        std::string error = "Failed to create file!";
+        std::cerr << error << std::endl;
+        sendText(clientSocket, error);
         return;
     }
 
@@ -404,46 +442,26 @@ void saveIPListToFile(const std::string& filename) {
         std::cout << "IP list saved to file: " << filename << std::endl;
     }
     else {
-        std::cerr << "Error retrieving adapter addresses!" << std::endl;
+        std::string error = "Error retrieving adapter addresses";
+        std::cerr << error << std::endl;
+        sendText(clientSocket, error);
     }
 
     free(adapterAddresses);
     outFile.close();
-}
-
-void receiveFile(SOCKET serverSocket, const std::string& filename) {
-    std::ofstream outFile(filename, std::ios::binary);
-    if (!outFile) {
-        std::cerr << "Failed to create file: " << filename << std::endl;
-        return;
-    }
-
-    char buffer[1024];
-    int bytesReceived;
-    while ((bytesReceived = recv(serverSocket, buffer, sizeof(buffer), 0)) > 0) {
-        outFile.write(buffer, bytesReceived);
-    }
-
-    std::cout << "File received and saved to: " << filename << std::endl;
-    outFile.close();
-}
-
-void sendText(SOCKET clientSocket, const std::string& message) {
-    // Send header
-    std::string header = "TYPE:text|SIZE:" + std::to_string(message.size()) + "\n";
-    send(clientSocket, header.c_str(), header.size(), 0);
-
-    // Send text content
-    send(clientSocket, message.c_str(), message.size(), 0);
-
-    std::cout << "Text sent successfully!" << std::endl;
+    sendFile(clientSocket, filename);
+    std::cout << "Successfully send list of IP to client." << std::endl;
 }
 
 void takeScreenshotWithTimestamp(SOCKET clientSocket) {
     // Initialize GDI+
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
     ULONG_PTR gdiplusToken;
-    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+    Gdiplus::Status status = Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+    if (status != Gdiplus::Ok) {
+        std::cerr << "Failed to initialize GDI+" << std::endl;
+        return;
+    }
 
     // Get screen dimensions
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -451,30 +469,75 @@ void takeScreenshotWithTimestamp(SOCKET clientSocket) {
 
     // Create a device context compatible with the screen
     HDC screenDC = GetDC(NULL);
+    if (screenDC == NULL) {
+        std::cerr << "Failed to get screen DC" << std::endl;
+        Gdiplus::GdiplusShutdown(gdiplusToken);
+        return;
+    }
+
     HDC memoryDC = CreateCompatibleDC(screenDC);
+    if (memoryDC == NULL) {
+        std::cerr << "Failed to create memory DC" << std::endl;
+        ReleaseDC(NULL, screenDC);
+        Gdiplus::GdiplusShutdown(gdiplusToken);
+        return;
+    }
+
     HBITMAP hBitmap = CreateCompatibleBitmap(screenDC, screenWidth, screenHeight);
+    if (hBitmap == NULL) {
+        std::cerr << "Failed to create compatible bitmap" << std::endl;
+        DeleteDC(memoryDC);
+        ReleaseDC(NULL, screenDC);
+        Gdiplus::GdiplusShutdown(gdiplusToken);
+        return;
+    }
+
     SelectObject(memoryDC, hBitmap);
 
     // Copy the screen content into the memory device context
-    BitBlt(memoryDC, 0, 0, screenWidth, screenHeight, screenDC, 0, 0, SRCCOPY | CAPTUREBLT);
+    if (!BitBlt(memoryDC, 0, 0, screenWidth, screenHeight, screenDC, 0, 0, SRCCOPY | CAPTUREBLT)) {
+        std::cerr << "Failed to capture screen content" << std::endl;
+        DeleteObject(hBitmap);
+        DeleteDC(memoryDC);
+        ReleaseDC(NULL, screenDC);
+        Gdiplus::GdiplusShutdown(gdiplusToken);
+        return;
+    }
 
-    
+    // Create filename with timestamp
     std::string filename = "Screenshot_" + getCurrentTimestamp() + ".png";
 
     // Save the bitmap as a PNG file
     Gdiplus::Bitmap bitmap(hBitmap, NULL);
     CLSID pngClsid;
-    CLSIDFromString(L"{557CF406-1A04-11D3-9A73-0000F81EF32E}", &pngClsid);
-    std::wstring wideFilename(filename.begin(), filename.end());
-    bitmap.Save(wideFilename.c_str(), &pngClsid, NULL);
+    HRESULT hr = CLSIDFromString(L"{557CF406-1A04-11D3-9A73-0000F81EF32E}", &pngClsid);
+    if (FAILED(hr)) {
+        std::cerr << "Failed to get PNG CLSID" << std::endl;
+        DeleteObject(hBitmap);
+        DeleteDC(memoryDC);
+        ReleaseDC(NULL, screenDC);
+        Gdiplus::GdiplusShutdown(gdiplusToken);
+        return;
+    }
 
-    // Clean up
+    status = bitmap.Save(std::wstring(filename.begin(), filename.end()).c_str(), &pngClsid, NULL);
+    if (status != Gdiplus::Ok) {
+        std::cerr << "Failed to save screenshot as PNG" << std::endl;
+    }
+    else {
+        std::cout << "Screenshot saved as " << filename << std::endl;
+    }
+
+    // Clean up GDI+ and resources
     DeleteObject(hBitmap);
+    std::cout << "hihi\n";
     DeleteDC(memoryDC);
+    std::cout << "haha\n";
     ReleaseDC(NULL, screenDC);
+    std::cout << "hehe\n";
     Gdiplus::GdiplusShutdown(gdiplusToken);
+    std::cout << "hihihaha\n";
 
-    std::cout << "Screenshot saved as " << filename << std::endl;
     sendFile(clientSocket, filename);
 }
 
@@ -529,11 +592,11 @@ int main() {
     closesocket(listening);
 
     // While loop: accept and echo message back to client
-    char buf[102400];
+    char buf[4096];
     while (true) {
-        ZeroMemory(buf, 102400);
+        ZeroMemory(buf, 4096);
         // Wait for client to send data
-        int bytesReceived = recv(clientSocket, buf, 102400, 0);
+        int bytesReceived = recv(clientSocket, buf, 4096, 0);
         if (bytesReceived == SOCKET_ERROR) {
             std::cerr << "Error in recv(). Quitting" << std::endl;
             break;
@@ -556,7 +619,7 @@ int main() {
             closeApplicationById(pidToClose, clientSocket);
         }
         else if (std::string(buf, 0, bytesReceived) == "shutdown") {
-            shutdownComputer();
+            shutdownComputer(clientSocket);
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 6) == "camera") {
             std::string duration_seconds_str = std::string(buf, 7, bytesReceived - 7); // Lấy chuỗi sau "camera"
@@ -575,8 +638,7 @@ int main() {
             listAllProcesses(clientSocket);
         }
         else if (std::string(buf, 0, bytesReceived) == "send") {
-            saveIPListToFile("ip.txt");
-            sendFile(clientSocket, "ip.txt");
+            saveIPListToFile(clientSocket);
         }
         else if (std::string(buf, 0, bytesReceived) == "pic") {
             takeScreenshotWithTimestamp(clientSocket);
@@ -602,13 +664,14 @@ int main() {
                 std::cerr << "Tên file không hợp lệ.\n";
             }
         }
+    }
 
-    // Close the client socket
-    closesocket(clientSocket);
+        // Close the client socket
+        closesocket(clientSocket);
 
-    // Cleanup Winsock
-    WSACleanup();
+        // Cleanup Winsock
+        WSACleanup();
 
-    system("pause");
-    return 0;
+        system("pause");
+        return 0;
 }
