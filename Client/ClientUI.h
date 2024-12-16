@@ -1,4 +1,4 @@
-// ClientUI.h
+﻿// ClientUI.h
 #pragma once
 #include <wx/wx.h>
 #include <wx/textctrl.h>
@@ -28,8 +28,6 @@ private:
 
     // Layout Management
     wxBoxSizer* mainSizer;
-    wxBoxSizer* connectionSizer;
-    wxBoxSizer* serverListSizer;
 
     // UI Setup
     void CreateControls();

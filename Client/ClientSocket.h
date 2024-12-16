@@ -17,11 +17,8 @@ private:
     struct addrinfo* result;
     struct addrinfo* ptr;
     struct addrinfo hints;
-    static const int DEFAULT_BUFLEN = 4096;
-    static const int SOCKET_TIMEOUT = 30000; // 5 seconds
+    static const int SOCKET_TIMEOUT = 30000; // 30 seconds
     static const int MAX_RETRY_COUNT = 3;
-    static const int KEEPALIVE_TIME = 10000;    // 10 seconds
-    static const int KEEPALIVE_INTERVAL = 1000; // 1 second
 
     std::function<void(const std::string&)> logCallback;
 

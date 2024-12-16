@@ -92,21 +92,7 @@ bool ClientSocket::connectToServer() {
 }
 
 bool ClientSocket::Connect(const char* address, const char* port, int family) {
-    // Nếu đã có socket cũ, đóng nó trước
-    if (connectSocket != INVALID_SOCKET) {
-        Close();
-    }
-
-    if (!createSocket(address, port, family)) {
-        return false;
-    }
-
-    bool connected = connectToServer();
-    // Không đặt non-blocking mode sau khi kết nối thành công
-    // if (connected) {
-    //     setNonBlocking(true);
-    // }
-    return connected;
+    return createSocket(address, port, family) && connectToServer();
 }
 
 bool ClientSocket::Close() {
@@ -120,12 +106,7 @@ bool ClientSocket::Close() {
 }
 
 bool ClientSocket::IsConnected() const {
-    if (connectSocket == INVALID_SOCKET) {
-        return false;
-    }
-
-    // Cast away const để gọi checkConnection
-    return const_cast<ClientSocket*>(this)->checkConnection();
+    return connectSocket != INVALID_SOCKET && const_cast<ClientSocket*>(this)->checkConnection();
 }
 
 bool ClientSocket::Send(const char* data, int length) {
@@ -137,8 +118,7 @@ bool ClientSocket::Send(const char* data, int length) {
     while (totalSent < length && retryCount < MAX_RETRY_COUNT) {
         int result = send(connectSocket, data + totalSent, length - totalSent, 0);
         if (result == SOCKET_ERROR) {
-            int error = WSAGetLastError();
-            if (error == WSAEWOULDBLOCK) {
+            if (WSAGetLastError() == WSAEWOULDBLOCK) {
                 Sleep(100);
                 retryCount++;
                 if (!checkConnection()) {
@@ -147,12 +127,11 @@ bool ClientSocket::Send(const char* data, int length) {
                 }
                 continue;
             }
-            log("Send failed");
             Close();
             return false;
         }
         totalSent += result;
-        retryCount = 0; // Reset retry count on successful send
+        retryCount = 0;
     }
 
     return totalSent == length;

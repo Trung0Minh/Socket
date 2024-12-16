@@ -201,6 +201,9 @@ bool EmailSender::sendEmail(const std::string& to,
             else if (mimetype.find("video") != std::string::npos) {
                 enhancedSubject += " [Video Attachment]";
             }
+            else if (mimetype == "text/plain") {
+                enhancedSubject += " [Text File Attachment]";
+            }
 
             // Tạo nội dung mô tả
             std::string description = "Attached file: " + filename + "\nType: " + mimetype;

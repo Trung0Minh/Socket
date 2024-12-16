@@ -34,7 +34,7 @@ private:
     std::atomic<bool> connectionLostLogged;
 
     const int CHECK_INTERVAL = 1;
-    const int DEFAULT_BUFLEN = 1024 * 1024 * 10;
+    const int DEFAULT_BUFLEN = 1024 * 1024 * 25;
     const std::string DEFAULT_PORT = "54000";
 
     // Helper function for logging
