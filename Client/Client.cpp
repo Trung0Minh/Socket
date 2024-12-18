@@ -143,7 +143,7 @@ bool Client::receiveData(std::string& response) {
 
     std::vector<char> buffer(DEFAULT_BUFLEN);
 
-    int bytesReceived = clientSocket->Receive(buffer.data(), DEFAULT_BUFLEN);
+    size_t bytesReceived = clientSocket->Receive(buffer.data(), DEFAULT_BUFLEN);
 
     if (bytesReceived > 0) {
         response.assign(buffer.data(), bytesReceived);

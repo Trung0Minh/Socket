@@ -137,20 +137,18 @@ bool ClientSocket::Send(const char* data, int length) {
     return totalSent == length;
 }
 
-int ClientSocket::Receive(char* outputBuffer, int bufferSize) {
-    if (!checkConnection()) return -1;
+size_t ClientSocket::Receive(char* outputBuffer, size_t bufferSize) {
+    if (!checkConnection()) return static_cast<size_t>(-1);
 
-    // Biến để lưu toàn bộ header
     std::string headerStr;
     char headerByte;
     bool foundNewline = false;
 
-    // Đọc từng byte cho đến khi tìm thấy ký tự newline
     while (!foundNewline) {
         int result = recv(connectSocket, &headerByte, 1, 0);
         if (result <= 0) {
             log("Failed to receive header");
-            return -1;
+            return static_cast<size_t>(-1);
         }
         if (headerByte == '\n') {
             foundNewline = true;
@@ -158,11 +156,10 @@ int ClientSocket::Receive(char* outputBuffer, int bufferSize) {
         headerStr += headerByte;
     }
 
-    // Parse header
     size_t sizePos = headerStr.find("SIZE:");
     if (sizePos == std::string::npos) {
         log("Invalid header format: no SIZE field");
-        return -1;
+        return static_cast<size_t>(-1);
     }
 
     sizePos += 5;  // Skip "SIZE:"
@@ -170,50 +167,45 @@ int ClientSocket::Receive(char* outputBuffer, int bufferSize) {
     if (sizeSep == std::string::npos) sizeSep = headerStr.find('\n', sizePos);
 
     std::string sizeStr = headerStr.substr(sizePos, sizeSep - sizePos);
-    int dataSize;
+    size_t dataSize;
     try {
-        dataSize = std::stoi(sizeStr);
+        dataSize = std::stoull(sizeStr);
     }
     catch (...) {
         log("Invalid size format in header");
-        return -1;
+        return static_cast<size_t>(-1);
     }
 
-    // Kiểm tra kích thước buffer
     if (dataSize + headerStr.size() > bufferSize) {
         log("Received data size exceeds buffer capacity");
-        return -1;
+        return static_cast<size_t>(-1);
     }
 
-    // Sao chép header vào outputBuffer
     std::memcpy(outputBuffer, headerStr.c_str(), headerStr.size());
-    int totalReceived = headerStr.size();
+    size_t totalReceived = headerStr.size();
 
-    // Nhận dữ liệu file
     while (totalReceived < dataSize + headerStr.size()) {
-        int bytesToReceive = min(8192, dataSize + headerStr.size() - totalReceived);
+        size_t bytesToReceive = min(
+            static_cast<size_t>(8192),
+            dataSize + headerStr.size() - totalReceived
+        );
         int bytesReceived = recv(connectSocket,
             outputBuffer + totalReceived,
-            bytesToReceive,
+            static_cast<int>(bytesToReceive),  // recv vẫn yêu cầu int
             0);
 
         if (bytesReceived <= 0) {
             log("Failed to receive file data");
-            return -1;
+            return static_cast<size_t>(-1);
         }
         totalReceived += bytesReceived;
     }
+
     std::stringstream ss;
     ss << "Data received successfully! Size: " << totalReceived << " bytes" << std::endl;
     log(ss.str());
-    return totalReceived;
-}
 
-void ClientSocket::setNonBlocking(bool nonBlocking) {
-    if (connectSocket != INVALID_SOCKET) {
-        u_long mode = nonBlocking ? 1 : 0;
-        ioctlsocket(connectSocket, FIONBIO, &mode);
-    }
+    return totalReceived;
 }
 
 bool ClientSocket::checkConnection() {

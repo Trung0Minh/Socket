@@ -175,7 +175,7 @@ bool EmailSender::sendEmail(const std::string& to,
         std::string mimetype;
 
         if (!parseHeader(textContent, type, body, filename, mimetype)) {
-            std::cerr << "Failed to parse header" << std::endl;
+            log("Failed to parse header");
             return false;
         }
 
@@ -186,7 +186,7 @@ bool EmailSender::sendEmail(const std::string& to,
         }
         else if (type == "file") {
             if (filename.empty() || mimetype.empty()) {
-                std::cerr << "Missing filename or MIME type for file" << std::endl;
+                log("Missing filename or MIME type for file");
                 return false;
             }
 
@@ -201,7 +201,7 @@ bool EmailSender::sendEmail(const std::string& to,
             else if (mimetype.find("video") != std::string::npos) {
                 enhancedSubject += " [Video Attachment]";
             }
-            else if (mimetype == "text/plain") {
+            else if (mimetype == "text/txt") {
                 enhancedSubject += " [Text File Attachment]";
             }
 
@@ -212,25 +212,31 @@ bool EmailSender::sendEmail(const std::string& to,
             rawEmail = createRawEmail(to, enhancedSubject, description, fileData, filename);
         }
         else {
-            std::cerr << "Unsupported type: " << type << std::endl;
+            log("Unsupported type: " + std::string(type));
             return false;
         }
 
         if (rawEmail.empty()) {
-            std::cerr << "Failed to create email content" << std::endl;
+            log("Failed to create email content");
             return false;
         }
 
         bool success = sendEmailRequest(rawEmail);
         if (!success) {
-            std::cerr << "Failed to send email request" << std::endl;
+            log("Failed to send email request");
             return false;
         }
 
         return true;
     }
     catch (const std::exception& e) {
-        std::cerr << "Error in sendEmail: " << e.what() << std::endl;
+        log("Error in sendEmail: " + std::string(e.what()));
         return false;
+    }
+}
+
+void EmailSender::log(const std::string& message) {
+    if (logCallback) {
+        logCallback(message);
     }
 }

@@ -37,8 +37,7 @@ public:
     bool Close();
     bool IsConnected() const;
     bool Send(const char* data, int length);
-    int Receive(char* outputBuffer, int bufferSize);
+    size_t Receive(char* outputBuffer, size_t bufferSize);
     SOCKET GetSocket() const { return connectSocket; }
-    void setNonBlocking(bool nonBlocking);
     bool checkConnection();
 };

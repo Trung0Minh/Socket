@@ -60,7 +60,7 @@ void Auth::requestAuthorizationCode() {
             token = exchangeAuthorizationCodeForTokens(authCode);
             saveToken(token);
         }
-        catch (const std::exception& e) {
+        catch (const std::exception&) {
             dialog->Destroy();
             tempFrame->Destroy();
             throw; // Re-throw nếu có lỗi trong quá trình xử lý authorization code
@@ -112,7 +112,7 @@ nlohmann::json Auth::exchangeAuthorizationCodeForTokens(const std::string& authC
     try {
         return json::parse(readBuffer);
     }
-    catch (const json::parse_error& e) {
+    catch (const json::parse_error&) {
         throw std::runtime_error("Failed to parse server response");
     }
 }

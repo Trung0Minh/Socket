@@ -1,17 +1,15 @@
 ﻿#include "EmailMonitor.h"
 #include <iostream>
 #include <curl/curl.h>
+#include <regex>
 #include "base64.h"
 
 using json = nlohmann::json;
+using namespace std::chrono_literals;
 
 size_t EmailMonitor::WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
-    userp->append((char*)contents, size * nmemb);
+    userp->append(static_cast<char*>(contents), size * nmemb);
     return size * nmemb;
-}
-
-void EmailMonitor::setLogCallback(std::function<void(const std::string&)> callback) {
-    logCallback = callback;
 }
 
 void EmailMonitor::log(const std::string& message) {
@@ -24,7 +22,7 @@ EmailMonitor::EmailMonitor() :
     running(false),
     callback(nullptr),
     logCallback(nullptr),
-    commandExecutor(nullptr){
+    commandExecutor(nullptr) {
 }
 
 EmailMonitor::~EmailMonitor() {
@@ -33,24 +31,6 @@ EmailMonitor::~EmailMonitor() {
 
 void EmailMonitor::start() {
     if (!running) {
-        Config* config = Config::getInstance();
-        std::string tokenFilePath = config->getTokenFile();
-
-        std::ifstream tokenFile(tokenFilePath);
-        if (!tokenFile.is_open()) {
-            log("Error: Cannot open token.json. Please ensure the file exists and has correct permissions");
-            return;
-        }
-
-        std::string content((std::istreambuf_iterator<char>(tokenFile)), std::istreambuf_iterator<char>());
-        if (content.empty()) {
-            log("Error: token.json is empty");
-            tokenFile.close();
-            return;
-        }
-
-        tokenFile.close();
-
         std::string accessToken = tokenManager.getValidAccessToken();
         if (accessToken.empty()) {
             log("Error: Failed to get valid access token. Please check your credentials");
@@ -67,15 +47,55 @@ void EmailMonitor::stop() {
         running = false;
         queueCV.notify_all();
 
-        std::unique_lock<std::mutex> lock(queueMutex);
-        std::queue<std::string> empty;
-        std::swap(emailQueue, empty);
-        lock.unlock();
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            std::queue<std::string>().swap(emailQueue);
+        }
 
         if (monitorThread.joinable()) {
             monitorThread.join();
         }
     }
+}
+
+EmailMonitor::CurlResponse EmailMonitor::performCurlRequest(const std::string& url,
+    const std::string& accessToken,
+    const std::string& method,
+    const std::string& postData) {
+    CurlResponse response{};
+    response.success = false;
+
+    std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
+    if (!curl) {
+        log("Error: CURL init failed");
+        return response;
+    }
+
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, ("Authorization: Bearer " + accessToken).c_str());
+    if (!postData.empty()) {
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+    }
+
+    curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &response.data);
+    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYPEER, 0L);
+
+    if (method != "GET") {
+        curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, method.c_str());
+        if (!postData.empty()) {
+            curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, postData.c_str());
+        }
+    }
+
+    response.success = (curl_easy_perform(curl.get()) == CURLE_OK);
+    curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &response.httpCode);
+
+    curl_slist_free_all(headers);
+    return response;
 }
 
 bool EmailMonitor::checkNewEmails() {
@@ -85,43 +105,23 @@ bool EmailMonitor::checkNewEmails() {
         return false;
     }
 
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        log("Error: CURL init failed");
-        return false;
-    }
-
-    std::string readBuffer;
-    struct curl_slist* headers = NULL;
-    std::string authHeader = "Authorization: Bearer " + accessToken;
-    headers = curl_slist_append(headers, authHeader.c_str());
-
     std::string query = "is:unread subject:[Request]";
-    char* encodedQuery = curl_easy_escape(curl, query.c_str(), 0);
-    std::string url = "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=" + std::string(encodedQuery);
-    curl_free(encodedQuery);
+    std::unique_ptr<char, decltype(&curl_free)> encodedQuery(
+        curl_easy_escape(nullptr, query.c_str(), 0),
+        curl_free
+    );
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L); // Set timeout to 30 seconds
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    std::string url = "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=" +
+        std::string(encodedQuery.get());
 
-    CURLcode res = curl_easy_perform(curl);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
-    if (res != CURLE_OK) {
-        log("Error: Failed to perform CURL request: " + std::string(curl_easy_strerror(res)));
-        return false;
-    }
+    auto response = performCurlRequest(url, accessToken);
+    if (!response.success) return false;
 
     try {
-        json response = json::parse(readBuffer);
-        if (response.contains("messages")) {
-            std::unique_lock<std::mutex> lock(queueMutex);
-            for (const auto& message : response["messages"]) {
+        auto jsonResponse = json::parse(response.data);
+        if (jsonResponse.contains("messages")) {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            for (const auto& message : jsonResponse["messages"]) {
                 emailQueue.push(message["id"]);
             }
             queueCV.notify_one();
@@ -130,62 +130,30 @@ bool EmailMonitor::checkNewEmails() {
     }
     catch (const json::exception& e) {
         log("Error: Failed to parse JSON response: " + std::string(e.what()));
-        return false;
     }
-
     return false;
 }
 
 std::string EmailMonitor::getEmailContent(const std::string& emailId) {
-    int retryCount = 0;
     const int maxRetries = 2;
-
-    while (retryCount < maxRetries) {
+    for (int retryCount = 0; retryCount < maxRetries; ++retryCount) {
         std::string accessToken = tokenManager.getValidAccessToken();
         if (accessToken.empty()) {
             log("Error: Empty access token");
-            return "";
+            continue;
         }
-
-        CURL* curl = curl_easy_init();
-        if (!curl) {
-            log("Error: CURL init failed");
-            return "";
-        }
-
-        std::string readBuffer;
-        struct curl_slist* headers = NULL;
-        std::string authHeader = "Authorization: Bearer " + accessToken;
-        headers = curl_slist_append(headers, authHeader.c_str());
 
         std::string url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + emailId;
+        auto response = performCurlRequest(url, accessToken);
 
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L); // Set timeout to 30 seconds
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-
-        CURLcode res = curl_easy_perform(curl);
-        long http_code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-
-        if (res != CURLE_OK) {
-            log("Error: Failed to perform CURL request: " + std::string(curl_easy_strerror(res)));
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-            if (http_code == 401) {
+        if (!response.success) {
+            if (response.httpCode == 401) {
                 log("Token might be expired, retrying...");
-                retryCount++;
                 continue;
             }
-            return "";
+            break;
         }
-
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-        return readBuffer;
+        return response.data;
     }
 
     log("Error: Maximum retries exceeded for getting email content");
@@ -199,189 +167,125 @@ bool EmailMonitor::markEmailAsRead(const std::string& emailId) {
         return false;
     }
 
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        log("Error: CURL init failed");
-        return false;
-    }
-
-    std::string readBuffer;
-    struct curl_slist* headers = NULL;
-    std::string authHeader = "Authorization: Bearer " + accessToken;
-    headers = curl_slist_append(headers, authHeader.c_str());
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-
-    std::string url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/" + emailId + "/modify";
+    std::string url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/" +
+        emailId + "/modify";
 
     json payload;
     payload["removeLabelIds"] = json::array({ "UNREAD" });
-    std::string jsonStr = payload.dump();
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonStr.c_str());
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L); // Set timeout to 30 seconds
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-    CURLcode res = curl_easy_perform(curl);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
-    if (res != CURLE_OK) {
-        log("Error: Failed to mark email as read: " + std::string(curl_easy_strerror(res)));
-        return false;
-    }
-
-    return true;
+    auto response = performCurlRequest(url, accessToken, "POST", payload.dump());
+    return response.success;
 }
 
 std::string EmailMonitor::trim(const std::string& str) {
-    size_t start = str.find_first_not_of(" \t\n\r");
-    size_t end = str.find_last_not_of(" \t\n\r");
+    const auto start = str.find_first_not_of(" \t\n\r");
+    if (start == std::string::npos) return "";
 
-    if (start == std::string::npos || end == std::string::npos)
-        return "";
-
+    const auto end = str.find_last_not_of(" \t\n\r");
     return str.substr(start, end - start + 1);
 }
 
 EmailMonitor::EmailContent EmailMonitor::parseEmailContent(const nlohmann::json& emailData) {
     EmailContent content;
-
     try {
-        if (!emailData.contains("payload") || !emailData["payload"].contains("headers")) {
-            throw std::runtime_error("Invalid email format: missing headers");
-        }
+        const auto& headers = emailData["payload"]["headers"];
+        auto findHeader = [&headers](const std::string& name) {
+            auto it = std::find_if(headers.begin(), headers.end(),
+                [&name](const auto& header) { return header["name"] == name; });
+            return it != headers.end() ? (*it)["value"].get<std::string>() : "";
+            };
 
-        bool foundSubject = false, foundFrom = false;
-        for (const auto& header : emailData["payload"]["headers"]) {
-            if (header["name"] == "Subject") {
-                content.subject = header["value"];
-                foundSubject = true;
-            }
-            else if (header["name"] == "From") {
-                content.from = header["value"];
-                foundFrom = true;
-            }
-        }
+        content.subject = findHeader("Subject");
+        content.from = findHeader("From");
 
-        if (!foundSubject || !foundFrom) {
+        if (content.subject.empty() || content.from.empty()) {
             throw std::runtime_error("Missing required headers");
         }
 
-        if (!emailData["payload"].contains("parts")) {
-            throw std::runtime_error("Invalid email format: missing body parts");
-        }
-
-        bool foundBody = false;
         for (const auto& part : emailData["payload"]["parts"]) {
-            if (part["mimeType"] == "text/plain" && part["body"].contains("data")) {
-                std::string encodedBody = part["body"]["data"];
-                content.body = base64_decode(encodedBody);
-                foundBody = true;
+            if (part["mimeType"] == "text/plain") {
+                content.body = base64_decode(part["body"]["data"].get<std::string>());
                 break;
             }
         }
 
-        if (!foundBody) {
-            throw std::runtime_error("No plain text body found");
+        std::regex pattern(R"(SERVER_IP=([^\n]+)\s*COMMAND=([^\n]+))");
+        std::smatch matches;
+        if (std::regex_search(content.body, matches, pattern)) {
+            content.serverIp = trim(matches[1].str());
+            content.command = trim(matches[2].str());
         }
-
-        size_t ipPos = content.body.find("SERVER_IP=");
-        size_t cmdPos = content.body.find("COMMAND=");
-
-        if (ipPos == std::string::npos || cmdPos == std::string::npos) {
-            throw std::runtime_error("Missing SERVER_IP or COMMAND in email body");
-        }
-
-        size_t ipEndPos = content.body.find("\n", ipPos);
-        size_t cmdEndPos = content.body.find("\n", cmdPos);
-
-        content.serverIp = trim(content.body.substr(ipPos + 10, ipEndPos - (ipPos + 10)));
-        content.command = trim(content.body.substr(cmdPos + 8, cmdEndPos - (cmdPos + 8)));
 
         if (content.serverIp.empty() || content.command.empty()) {
-            throw std::runtime_error("Empty SERVER_IP or COMMAND value");
-        }
-
-        return content;
-    }
-    catch (const std::exception& e) {
-        log("Error parsing email content: " + std::string(e.what()));
-        return EmailContent();
-    }
-}
-
-void EmailMonitor::processEmail(const std::string& emailId) {
-    try {
-        auto emailData = nlohmann::json::parse(getEmailContent(emailId));
-        EmailContent content = parseEmailContent(emailData);
-
-        if (callback) {
-            callback(content.from, content.subject, content.body);
-        }
-
-        if (!content.command.empty() && commandExecutor) {
-            std::string response;
-            if (!commandExecutor(content.serverIp, content.command, response, content.from)) {
-                log("Error: Command execution failed");
-            }
-        }
-
-        if (!markEmailAsRead(emailId)) {
-            log("Warning: Failed to mark email as read");
+            throw std::runtime_error("Missing or invalid SERVER_IP or COMMAND");
         }
     }
     catch (const std::exception& e) {
-        log("Error processing email: " + std::string(e.what()));
+        log("Error parsing email: " + std::string(e.what()));
     }
+    return content;
 }
 
 void EmailMonitor::monitorEmails() {
-    const int CHECK_INTERVAL = 1;
-    const int NETWORK_TIMEOUT = 30;
+    const auto CHECK_INTERVAL = 1s;
+    const auto NETWORK_TIMEOUT = 30s;
 
     while (running) {
         try {
             auto start = std::chrono::steady_clock::now();
-            checkNewEmails();
 
-            auto end = std::chrono::steady_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
-
-            if (duration > NETWORK_TIMEOUT) {
-                log("Warning: Network operation took longer than expected (" + std::to_string(duration) + " seconds)");
-            }
-
-            {
+            if (checkNewEmails()) {
                 std::unique_lock<std::mutex> lock(queueMutex);
                 while (!emailQueue.empty() && running) {
-                    std::string emailId = emailQueue.front();
+                    auto emailId = std::move(emailQueue.front());
                     emailQueue.pop();
                     lock.unlock();
 
-                    auto processStart = std::chrono::steady_clock::now();
                     processEmail(emailId);
-                    auto processEnd = std::chrono::steady_clock::now();
-                    auto processDuration = std::chrono::duration_cast<std::chrono::seconds>(processEnd - processStart).count();
-
-                    if (processDuration > NETWORK_TIMEOUT) {
-                        log("Warning: Email processing took longer than expected (" + std::to_string(processDuration) + " seconds)");
-                    }
 
                     lock.lock();
                 }
             }
 
-            std::this_thread::sleep_for(std::chrono::seconds(CHECK_INTERVAL));
+            auto duration = std::chrono::steady_clock::now() - start;
+            if (duration > NETWORK_TIMEOUT) {
+                log("Warning: Operation took " +
+                    std::to_string(std::chrono::duration_cast<std::chrono::seconds>(duration).count()) +
+                    " seconds");
+            }
+
+            std::this_thread::sleep_for(CHECK_INTERVAL);
         }
         catch (const std::exception& e) {
-            log("Critical error in monitor loop: " + std::string(e.what()));
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            log("Critical error: " + std::string(e.what()));
+            std::this_thread::sleep_for(5s);
         }
+    }
+}
+
+void EmailMonitor::processEmail(const std::string& emailId) {
+    std::string emailContent = getEmailContent(emailId);
+    if (emailContent.empty()) {
+        log("Error: Failed to get email content");
+        return;
+    }
+
+    try {
+        auto emailData = json::parse(emailContent);
+        auto content = parseEmailContent(emailData);
+
+        std::string output;
+        if (commandExecutor && commandExecutor(content.serverIp, content.command, output, content.from)) {
+            if (callback) {
+                callback(content.from, content.command, output);
+            }
+            markEmailAsRead(emailId);
+        }
+    }
+    catch (const json::exception& e) {
+        log("Error parsing email JSON: " + std::string(e.what()));
+    }
+    catch (const std::exception& e) {
+        log("Error processing email: " + std::string(e.what()));
     }
 }

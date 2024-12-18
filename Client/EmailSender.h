@@ -28,12 +28,20 @@ private:
 
     // Logic for sending the email request
     bool sendEmailRequest(const std::string& rawEmail);
+    bool parseHeader(const std::string& textContent, 
+        std::string& type, 
+        std::string& body, 
+        std::string& filename, 
+        std::string& mimetype);
 
-    bool parseHeader(const std::string& textContent, std::string& type, std::string& body, std::string& filename, std::string& mimetype);
+    std::function<void(const std::string&)> logCallback;
+    void log(const std::string& message);
 
 public:
     EmailSender() = default;
     ~EmailSender() = default;
+
+    void setLogCallback(std::function<void(const std::string&)> callback) { logCallback = callback; }
 
     // Public function to send an email
     bool sendEmail(const std::string& to,
