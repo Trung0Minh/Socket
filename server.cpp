@@ -69,7 +69,7 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
     }
     // Add text file types
     else if (extension == ".txt") {
-        mimeType = "text/plain";
+        mimeType = "text/txt";
     }
     else {
         std::cerr << "Unsupported file format: " << filename << std::endl;
