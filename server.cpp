@@ -107,17 +107,25 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
 
 void sendText(SOCKET clientSocket, const std::string& message) {
     // Gửi thông tin tiêu đề (Header) bao gồm loại tệp (text), kích thước tệp, tên tệp và loại MIME
-    std::string header = "TYPE:text|SIZE:" + std::to_string(message.size()) + "\n";
-    int result = send(clientSocket, header.c_str(), header.size(), 0);
+    std::string header = "TYPE:text|SIZE:" + std::to_string(message.size()) + "|FILENAME:message.txt|MIME:text/plain\n";
+    int headerResult = send(clientSocket, header.c_str(), header.size(), 0);
 
-    // Gửi nội dung
-    if (result == SOCKET_ERROR) {
-        std::cerr << "Text sent failed!" << std::endl;
-        return; // Gửi thất bại
+    // Kiểm tra lỗi khi gửi tiêu đề (header)
+    if (headerResult == SOCKET_ERROR) {
+        std::cerr << "Failed to send header! Error code: " << WSAGetLastError() << std::endl;
+        return;
+    }
+
+    // Gửi nội dung văn bản (message)
+    int messageResult = send(clientSocket, message.c_str(), message.size(), 0);
+
+    // Kiểm tra lỗi khi gửi nội dung
+    if (messageResult == SOCKET_ERROR) {
+        std::cerr << "Failed to send message! Error code: " << WSAGetLastError() << std::endl;
+        return;
     }
 
     std::cout << "Text sent successfully!" << std::endl;
-    return;
 }
 
 void deleteFile(SOCKET clientSocket, const std::string& filePath) {
