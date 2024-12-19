@@ -1,4 +1,5 @@
-#define _CRT_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#define STB_IMAGE_WRITE_IMPLEMENTATION
 #pragma comment(lib, "gdiplus.lib")
 
 #include <iostream>
@@ -15,6 +16,7 @@
 #include <psapi.h>
 #include <iphlpapi.h>
 #include <fstream>
+#include "stb_image_write.h"
 
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment (lib, "Ws2_32.lib")
@@ -69,7 +71,7 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
     }
     // Add text file types
     else if (extension == ".txt") {
-        mimeType = "text/txt";
+        mimeType = "text/plain";
     }
     else {
         std::cerr << "Unsupported file format: " << filename << std::endl;
@@ -110,7 +112,7 @@ void sendText(SOCKET clientSocket, const std::string& message) {
     std::string header = "TYPE:text|SIZE:" + std::to_string(message.size()) + "|FILENAME:message.txt|MIME:text/plain\n";
     int headerResult = send(clientSocket, header.c_str(), header.size(), 0);
 
-    // Kiểm tra lỗi khi gửi tiêu đề (header)
+    // Kiểm tra lỗi khi gửi tiêu đề
     if (headerResult == SOCKET_ERROR) {
         std::cerr << "Failed to send header! Error code: " << WSAGetLastError() << std::endl;
         return;
@@ -454,7 +456,7 @@ void listProcesses(SOCKET clientSocket) {
 
 void listIPs(SOCKET clientSocket) {
     ULONG bufferSize = 0;
-    GetAdaptersAddresses(AF_INET, 0, nullptr, nullptr, &bufferSize);
+    GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, nullptr, &bufferSize);
 
     IP_ADAPTER_ADDRESSES* adapterAddresses = (IP_ADAPTER_ADDRESSES*)malloc(bufferSize);
 
@@ -468,14 +470,42 @@ void listIPs(SOCKET clientSocket) {
         return;
     }
 
-    if (GetAdaptersAddresses(AF_INET, 0, nullptr, adapterAddresses, &bufferSize) == NO_ERROR) {
+    if (GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, adapterAddresses, &bufferSize) == NO_ERROR) {
         for (IP_ADAPTER_ADDRESSES* adapter = adapterAddresses; adapter != nullptr; adapter = adapter->Next) {
+            // In tên adapter
+            outFile << "Adapter: " << adapter->FriendlyName << std::endl;
+
+            bool foundIPv4 = false;
+            bool foundIPv6 = false;
+
             for (IP_ADAPTER_UNICAST_ADDRESS* unicast = adapter->FirstUnicastAddress; unicast != nullptr; unicast = unicast->Next) {
-                char ipAddress[INET_ADDRSTRLEN];
-                sockaddr_in* sockaddr = (sockaddr_in*)unicast->Address.lpSockaddr;
-                inet_ntop(AF_INET, &(sockaddr->sin_addr), ipAddress, INET_ADDRSTRLEN);
-                outFile << ipAddress << std::endl; // Ghi IP vào tệp
+                char ipAddress[INET6_ADDRSTRLEN] = { 0 };
+
+                // Kiểm tra địa chỉ IPv4
+                if (unicast->Address.lpSockaddr->sa_family == AF_INET) { // IPv4
+                    sockaddr_in* sockaddr = (sockaddr_in*)unicast->Address.lpSockaddr;
+                    inet_ntop(AF_INET, &(sockaddr->sin_addr), ipAddress, INET6_ADDRSTRLEN);
+
+                    // Loại bỏ IP APIPA (169.254.x.x)
+                    if (strncmp(ipAddress, "169.254.", 8) != 0) {
+                        if (!foundIPv4) {
+                            outFile << "  IPv4 Address: " << ipAddress << std::endl;
+                            foundIPv4 = true;
+                        }
+                    }
+                }
+                // Kiểm tra địa chỉ IPv6
+                else if (unicast->Address.lpSockaddr->sa_family == AF_INET6) { // IPv6
+                    sockaddr_in6* sockaddr = (sockaddr_in6*)unicast->Address.lpSockaddr;
+                    inet_ntop(AF_INET6, &(sockaddr->sin6_addr), ipAddress, INET6_ADDRSTRLEN);
+
+                    if (!foundIPv6) {
+                        outFile << "  IPv6 Address: " << ipAddress << std::endl;
+                        foundIPv6 = true;
+                    }
+                }
             }
+            outFile << std::endl; // Thêm dòng trống giữa các adapter
         }
         std::cout << "IP list saved to file: " << filename << std::endl;
     }
@@ -487,17 +517,19 @@ void listIPs(SOCKET clientSocket) {
 
     free(adapterAddresses);
     outFile.close();
+
+    // Gửi tệp đến client
     sendFile(clientSocket, filename);
-    std::cout << "Successfully send list of IP to client." << std::endl;
+    std::cout << "Successfully sent list of IP to client." << std::endl;
 }
 
 void shutdownComputer(SOCKET clientSocket) {
     // Gửi thông báo cho client trước khi tắt máy
-    std::string shutdownMessage = "The computer is shutting down shortly.\n";
+    std::string shutdownMessage = "The computer is shutting down after 10 seconds.\n";
     sendText(clientSocket, shutdownMessage);
 
     // Đợi một chút để client có thể nhận được thông báo
-    Sleep(5000);  // Đợi 5 giây (thời gian này có thể thay đổi tùy vào tình huống)
+    Sleep(10000);  // Đợi 10 giây (thời gian này có thể thay đổi tùy vào tình huống)
 
     // Kiểm tra quyền tắt máy
     HANDLE hToken;
@@ -596,86 +628,46 @@ void restartComputer(SOCKET clientSocket) {
 }
 
 void captureScreenshot(SOCKET clientSocket) {
-    // Initialize GDI+
-    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
-    ULONG_PTR gdiplusToken;
-    Gdiplus::Status status = Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
-    if (status != Gdiplus::Ok) {
-        std::cerr << "Failed to initialize GDI+" << std::endl;
-        return;
-    }
+    // Lấy thông tin màn hình
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMemDC = CreateCompatibleDC(hdcScreen);
 
-    // Get screen dimensions
-    int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    // Lấy kích thước màn hình
+    int width = GetSystemMetrics(SM_CXSCREEN);
+    int height = GetSystemMetrics(SM_CYSCREEN);
 
-    // Create a device context compatible with the screen
-    HDC screenDC = GetDC(NULL);
-    if (screenDC == NULL) {
-        std::cerr << "Failed to get screen DC" << std::endl;
-        Gdiplus::GdiplusShutdown(gdiplusToken);
-        return;
-    }
+    // Tạo bitmap
+    HBITMAP hBitmap = CreateCompatibleBitmap(hdcScreen, width, height);
+    SelectObject(hdcMemDC, hBitmap);
 
-    HDC memoryDC = CreateCompatibleDC(screenDC);
-    if (memoryDC == NULL) {
-        std::cerr << "Failed to create memory DC" << std::endl;
-        ReleaseDC(NULL, screenDC);
-        Gdiplus::GdiplusShutdown(gdiplusToken);
-        return;
-    }
+    // Chụp màn hình
+    BitBlt(hdcMemDC, 0, 0, width, height, hdcScreen, 0, 0, SRCCOPY);
 
-    HBITMAP hBitmap = CreateCompatibleBitmap(screenDC, screenWidth, screenHeight);
-    if (hBitmap == NULL) {
-        std::cerr << "Failed to create compatible bitmap" << std::endl;
-        DeleteDC(memoryDC);
-        ReleaseDC(NULL, screenDC);
-        Gdiplus::GdiplusShutdown(gdiplusToken);
-        return;
-    }
+    // Lấy thông tin về bitmap
+    BITMAP bitmap;
+    GetObject(hBitmap, sizeof(bitmap), &bitmap);
 
-    SelectObject(memoryDC, hBitmap);
+    // Lấy dữ liệu pixel từ bitmap
+    int size = bitmap.bmWidth * bitmap.bmHeight * 4; // 4 bytes per pixel (RGBA)
+    unsigned char* pixels = new unsigned char[size];
+    GetBitmapBits(hBitmap, size, pixels);
 
-    // Copy the screen content into the memory device context
-    if (!BitBlt(memoryDC, 0, 0, screenWidth, screenHeight, screenDC, 0, 0, SRCCOPY | CAPTUREBLT)) {
-        std::cerr << "Failed to capture screen content" << std::endl;
-        DeleteObject(hBitmap);
-        DeleteDC(memoryDC);
-        ReleaseDC(NULL, screenDC);
-        Gdiplus::GdiplusShutdown(gdiplusToken);
-        return;
-    }
+    // Chuyển đổi từ BGRA sang RGBA
+for (int i = 0; i < size; i += 4) {
+    unsigned char temp = pixels[i];       // B
+    pixels[i] = pixels[i + 2];            // G
+    pixels[i + 2] = temp;                 // B
+}
 
-    // Create filename with timestamp
+    // Lưu ảnh dưới định dạng PNG
     std::string filename = "Screenshot_" + getCurrentTimestamp() + ".png";
+    stbi_write_png(filename.c_str(), bitmap.bmWidth, bitmap.bmHeight, 4, pixels, bitmap.bmWidth * 4);
 
-    // Save the bitmap as a PNG file
-    Gdiplus::Bitmap bitmap(hBitmap, NULL);
-    CLSID pngClsid;
-    HRESULT hr = CLSIDFromString(L"{557CF406-1A04-11D3-9A73-0000F81EF32E}", &pngClsid);
-    if (FAILED(hr)) {
-        std::cerr << "Failed to get PNG CLSID" << std::endl;
-        DeleteObject(hBitmap);
-        DeleteDC(memoryDC);
-        ReleaseDC(NULL, screenDC);
-        Gdiplus::GdiplusShutdown(gdiplusToken);
-        return;
-    }
-
-    status = bitmap.Save(std::wstring(filename.begin(), filename.end()).c_str(), &pngClsid, NULL);
-    if (status != Gdiplus::Ok) {
-        std::cerr << "Failed to save screenshot as PNG" << std::endl;
-    }
-    else {
-        std::cout << "Screenshot saved as " << filename << std::endl;
-    }
-
-    // Clean up GDI+ and resources
+    // Dọn dẹp
+    delete[] pixels;
     DeleteObject(hBitmap);
-    DeleteDC(memoryDC);
-    ReleaseDC(NULL, screenDC);
-    Gdiplus::GdiplusShutdown(gdiplusToken);
-
+    DeleteDC(hdcMemDC);
+    ReleaseDC(NULL, hdcScreen);
     sendFile(clientSocket, filename);
 }
 
@@ -892,19 +884,9 @@ int main() {
             }
         }
         else if (std::string(buf, 0, bytesReceived) == "help") {
-            //// Mở file help.txt
-            //std::ifstream helpFile("help.txt");
-            //std::string message((std::istreambuf_iterator<char>(helpFile)), std::istreambuf_iterator<char>());
-            //helpFile.close();
-            //sendText(clientSocket, message);
             sendFile(clientSocket, "help.txt");
         }
         else if (std::string(buf, 0, bytesReceived) == "about") {
-            //// Mở file help.txt
-            //std::ifstream helpFile("about.txt");
-            //std::string message((std::istreambuf_iterator<char>(helpFile)), std::istreambuf_iterator<char>());
-            //helpFile.close();
-            //sendText(clientSocket, message);
             sendFile(clientSocket, "about.txt");
         }
     }
