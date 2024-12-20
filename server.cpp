@@ -63,96 +63,15 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
     std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
 
     // Kiểm tra phần mở rộng và xác định loại MIME tương ứng
-    // Image formats
     if (extension == ".png") {
         mimeType = "image/png";
     }
-    else if (extension == ".jpg" || extension == ".jpeg") {
-        mimeType = "image/jpeg";
-    }
-    else if (extension == ".gif") {
-        mimeType = "image/gif";
-    }
-    else if (extension == ".bmp") {
-        mimeType = "image/bmp";
-    }
-    else if (extension == ".webp") {
-        mimeType = "image/webp";
-    }
-    else if (extension == ".svg") {
-        mimeType = "image/svg+xml";
-    }
-    // Video formats
     else if (extension == ".mp4") {
         mimeType = "video/mp4";
     }
-    else if (extension == ".avi") {
-        mimeType = "video/x-msvideo";
-    }
-    else if (extension == ".webm") {
-        mimeType = "video/webm";
-    }
-    else if (extension == ".mov") {
-        mimeType = "video/quicktime";
-    }
-    // Audio formats
-    else if (extension == ".mp3") {
-        mimeType = "audio/mpeg";
-    }
-    else if (extension == ".wav") {
-        mimeType = "audio/wav";
-    }
-    else if (extension == ".ogg") {
-        mimeType = "audio/ogg";
-    }
-    // Document formats
-    else if (extension == ".pdf") {
-        mimeType = "application/pdf";
-    }
-    else if (extension == ".doc" || extension == ".docx") {
-        mimeType = "application/msword";
-    }
-    else if (extension == ".xls" || extension == ".xlsx") {
-        mimeType = "application/vnd.ms-excel";
-    }
-    else if (extension == ".ppt" || extension == ".pptx") {
-        mimeType = "application/vnd.ms-powerpoint";
-    }
-    // Text formats
+    // Add text file types
     else if (extension == ".txt") {
         mimeType = "text/plain";
-    }
-    else if (extension == ".csv") {
-        mimeType = "text/csv";
-    }
-    else if (extension == ".html" || extension == ".htm") {
-        mimeType = "text/html";
-    }
-    else if (extension == ".css") {
-        mimeType = "text/css";
-    }
-    else if (extension == ".js") {
-        mimeType = "application/javascript";
-    }
-    // Archive formats
-    else if (extension == ".zip") {
-        mimeType = "application/zip";
-    }
-    else if (extension == ".rar") {
-        mimeType = "application/x-rar-compressed";
-    }
-    else if (extension == ".7z") {
-        mimeType = "application/x-7z-compressed";
-    }
-    // Font formats
-    else if (extension == ".ttf") {
-        mimeType = "font/ttf";
-    }
-    else if (extension == ".woff") {
-        mimeType = "font/woff";
-    }
-    else if (extension == ".woff2") {
-        mimeType = "font/woff2";
     }
     else {
         std::cerr << "Unsupported file format: " << filename << std::endl;
@@ -184,7 +103,7 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
         }
     }
 
-    std::cout << "File sent successfully!" << std::endl << std::endl;
+    std::cout << "File sent successfully!" << std::endl;
     inFile.close();
 }
 
@@ -508,7 +427,7 @@ void listProcesses(SOCKET clientSocket) {
         return;
     }
 
-    std::string filename = "Services_" + getCurrentTimestamp() + ".txt";
+    std::string filename = "Processes_" + getCurrentTimestamp() + ".txt";
     std::ofstream outFile(filename);
 
     if (!outFile) {
