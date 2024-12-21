@@ -808,56 +808,69 @@ int main() {
 
         if (std::string(buf, 0, bytesReceived) == "list applications") {
             listApplications(clientSocket);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 9) == "startApps") {
             // Lấy tên ứng dụng từ lệnh
             std::string appName = std::string(buf, 10, bytesReceived - 10); // Lấy chuỗi sau "startApps "
             startApplicationByName(clientSocket, appName);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "stopApps") {
             // Tách PID từ chuỗi lệnh nhận được
             std::string pidStr = std::string(buf, 9, bytesReceived - 9); // Lấy chuỗi sau "stopApps "
             DWORD pidToClose = std::stoul(pidStr); // Chuyển đổi PID sang số nguyên
             stopAppsAndProcById(clientSocket, pidToClose);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "list services") {
             listServices(clientSocket);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 9) == "startServ") {
             // Lấy tên ứng dụng từ lệnh
             std::string appName = std::string(buf, 10, bytesReceived - 10); // Lấy chuỗi sau "startServ "
             startServiceByName(clientSocket, appName);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "stopServ") {
             // Lấy tên ứng dụng từ lệnh
             std::string appName = std::string(buf, 9, bytesReceived - 9); // Lấy chuỗi sau "stopServ "
             stopServiceByName(clientSocket, appName);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "list processes") {
             listProcesses(clientSocket);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "stopProc") {
             // Tách PID từ chuỗi lệnh nhận được
             std::string pidStr = std::string(buf, 9, bytesReceived - 9); // Lấy chuỗi sau "stopProc "
             DWORD pidToClose = std::stoul(pidStr); // Chuyển đổi PID sang số nguyên
             stopAppsAndProcById(clientSocket, pidToClose);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "list ip") {
             listIPs(clientSocket);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "shutdown") {
             shutdownComputer(clientSocket);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "restart") {
             restartComputer(clientSocket);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "screenshot") {
             captureScreenshot(clientSocket);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 6) == "record") {
             std::string duration_seconds_str = std::string(buf, 7, bytesReceived - 7); // Lấy chuỗi sau "record "
             DWORD duration__seconds = std::stoul(duration_seconds_str); // Chuyển đổi duration_second_str sang số nguyên
             recordVideoFromCamera(clientSocket, duration__seconds);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "sendfile") {
             std::string filename_str = std::string(buf, 9, bytesReceived - 9);
@@ -866,6 +879,7 @@ int main() {
             filename_str.erase(filename_str.begin(), std::find_if(filename_str.begin(), filename_str.end(), [](unsigned char ch) { return !std::isspace(ch); }));
             filename_str.erase(std::find_if(filename_str.rbegin(), filename_str.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), filename_str.end());
             sendFile(clientSocket, filename_str);
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 6) == "delete") {
             std::string filename_str = std::string(buf, 7, bytesReceived - 7);
@@ -876,18 +890,26 @@ int main() {
 
             if (!filename_str.empty()) {
                 deleteFile(clientSocket, filename_str);
+                std::cout << std::endl;
             }
             else {
                 std::string error = "Tên file không hợp lệ.";
                 std::cerr << error << std::endl;
                 sendText(clientSocket, error);
+                std::cout << std::endl;
             }
         }
         else if (std::string(buf, 0, bytesReceived) == "help") {
             sendFile(clientSocket, "help.txt");
+            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "about") {
             sendFile(clientSocket, "about.txt");
+            std::cout << std::endl;
+        }
+        else {
+            std::cerr << "Command không hợp lệ , vui lòng nhập lại !" <<std::endl;
+            std::cout << std::endl;
         }
     }
 
