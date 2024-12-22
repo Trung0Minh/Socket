@@ -48,7 +48,18 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
 
     // Lấy kích thước tệp
     std::streamsize fileSize = inFile.tellg();
+    std::cout << "Initial file size: " << fileSize << std::endl;
     inFile.seekg(0, std::ios::beg);
+
+    // Kiểm tra kích thước tệp (25MB = 25 * 1024 * 1024 bytes)
+    const std::streamsize maxSize = 25 * 1024 * 1024;
+    if (fileSize > maxSize) {
+        std::cerr << "File size exceeds 25MB: " << filename << std::endl;
+        std::string errorMessage = "TYPE:text|SIZE:0\nFile size exceeds 25MB.";
+        sendText(clientSocket, errorMessage);
+        inFile.close();
+        return;
+    }
 
     // Lấy tên tệp (bỏ đi phần đường dẫn nếu có)    
     size_t lastSlash = filename.find_last_of("/\\");
