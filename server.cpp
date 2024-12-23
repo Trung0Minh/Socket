@@ -36,6 +36,29 @@ std::string getCurrentTimestamp() {
     return oss.str();
 }
 
+void sendText(SOCKET clientSocket, const std::string& message) {
+    // Gửi thông tin tiêu đề (Header) bao gồm loại tệp (text), kích thước tệp, tên tệp và loại MIME
+    std::string header = "TYPE:text|SIZE:" + std::to_string(message.size()) + "|FILENAME:message.txt|MIME:text/plain\n";
+    int headerResult = send(clientSocket, header.c_str(), header.size(), 0);
+
+    // Kiểm tra lỗi khi gửi tiêu đề
+    if (headerResult == SOCKET_ERROR) {
+        std::cerr << "Failed to send header! Error code: " << WSAGetLastError() << std::endl;
+        return;
+    }
+
+    // Gửi nội dung văn bản (message)
+    int messageResult = send(clientSocket, message.c_str(), message.size(), 0);
+
+    // Kiểm tra lỗi khi gửi nội dung
+    if (messageResult == SOCKET_ERROR) {
+        std::cerr << "Failed to send message! Error code: " << WSAGetLastError() << std::endl;
+        return;
+    }
+
+    std::cout << "Text sent successfully!" << std::endl;
+}
+
 void sendFile(SOCKET clientSocket, const std::string& filename) {
     // Mở tệp tin ở chế độ nhị phân và đặt con trỏ tệp ở cuối để lấy kích thước tệp
     std::ifstream inFile(filename, std::ios::binary | std::ios::ate);
@@ -200,29 +223,6 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
     inFile.close();
 }
 
-void sendText(SOCKET clientSocket, const std::string& message) {
-    // Gửi thông tin tiêu đề (Header) bao gồm loại tệp (text), kích thước tệp, tên tệp và loại MIME
-    std::string header = "TYPE:text|SIZE:" + std::to_string(message.size()) + "|FILENAME:message.txt|MIME:text/plain\n";
-    int headerResult = send(clientSocket, header.c_str(), header.size(), 0);
-
-    // Kiểm tra lỗi khi gửi tiêu đề
-    if (headerResult == SOCKET_ERROR) {
-        std::cerr << "Failed to send header! Error code: " << WSAGetLastError() << std::endl;
-        return;
-    }
-
-    // Gửi nội dung văn bản (message)
-    int messageResult = send(clientSocket, message.c_str(), message.size(), 0);
-
-    // Kiểm tra lỗi khi gửi nội dung
-    if (messageResult == SOCKET_ERROR) {
-        std::cerr << "Failed to send message! Error code: " << WSAGetLastError() << std::endl;
-        return;
-    }
-
-    std::cout << "Text sent successfully!" << std::endl;
-}
-
 void deleteFile(SOCKET clientSocket, const std::string& filePath) {
     // Xóa tệp bằng cách sử dụng hàm std::remove
     if (std::remove(filePath.c_str()) == 0) {
@@ -314,10 +314,10 @@ void startApplicationByName(SOCKET clientSocket, const std::string& appName) {
 
     // Gọi ứng dụng trực tiếp với ShellExecuteA, hàm trả về một HINSTANCE, nếu giá trị <= 32 có nghĩa là có lỗi xảy ra
     HINSTANCE result = ShellExecuteA(NULL, "open", appNameWithExe.c_str(), NULL, NULL, SW_SHOWNORMAL);
-    std::string message = (int)result <= 32 
-        ? "Failed to start application \"" + appNameWithExe + "\". Error code: " + std::to_string((int)result) + '\n' 
+    std::string message = (int)result <= 32
+        ? "Failed to start application \"" + appNameWithExe + "\". Error code: " + std::to_string((int)result) + '\n'
         : "Successfully started application \"" + appNameWithExe + "\".\n";
-    
+
     sendText(clientSocket, message);
     std::cout << message;
 }
@@ -350,6 +350,13 @@ void stopAppsAndProcById(SOCKET clientSocket, DWORD processId) { //stop Applicat
 }
 
 void listServices(SOCKET clientSocket) {
+    // Struct được định nghĩa bên trong hàm
+    struct ServiceInfo {
+        std::string serviceName;
+        std::string displayName;
+        std::string status;
+    };
+
     SC_HANDLE hSCManager = OpenSCManager(NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE);
     if (hSCManager == NULL) {
         std::cerr << "Failed to open Service Control Manager: " << GetLastError() << std::endl;
@@ -360,34 +367,34 @@ void listServices(SOCKET clientSocket) {
     ENUM_SERVICE_STATUS_PROCESS* serviceStatus = nullptr;
 
     // Lần đầu gọi để tính toán bộ nhớ cần thiết
-    if (!EnumServicesStatusEx(
+    EnumServicesStatusEx(
         hSCManager,
         SC_ENUM_PROCESS_INFO,
         SERVICE_WIN32,
         SERVICE_STATE_ALL,
-        NULL,  // Không truyền bộ nhớ cho lần gọi đầu tiên
-        0,     // Đặt kích thước bộ nhớ là 0
+        NULL,
+        0,
         &bytesNeeded,
         &servicesReturned,
         &resumeHandle,
-        NULL)) {
-        DWORD error = GetLastError();
-        if (error != ERROR_MORE_DATA) {
-            std::cerr << "Failed to enumerate services: " << error << std::endl;
-            CloseServiceHandle(hSCManager);
-            return;
-        }
+        NULL);
 
-        // Cấp phát bộ nhớ đủ lớn để chứa thông tin dịch vụ
-        serviceStatus = (ENUM_SERVICE_STATUS_PROCESS*)malloc(bytesNeeded);
-        if (serviceStatus == NULL) {
-            std::cerr << "Failed to allocate memory for service list." << std::endl;
-            CloseServiceHandle(hSCManager);
-            return;
-        }
+    DWORD error = GetLastError();
+    if (error != ERROR_MORE_DATA) {
+        std::cerr << "Failed to enumerate services: " << error << std::endl;
+        CloseServiceHandle(hSCManager);
+        return;
     }
 
-    // Gọi lại EnumServicesStatusEx để lấy thông tin dịch vụ với bộ nhớ vừa cấp phát
+    // Cấp phát bộ nhớ đủ lớn để chứa thông tin dịch vụ
+    serviceStatus = (ENUM_SERVICE_STATUS_PROCESS*)malloc(bytesNeeded);
+    if (serviceStatus == NULL) {
+        std::cerr << "Failed to allocate memory for service list." << std::endl;
+        CloseServiceHandle(hSCManager);
+        return;
+    }
+
+    // Gọi lại EnumServicesStatusEx để lấy thông tin dịch vụ
     if (!EnumServicesStatusEx(
         hSCManager,
         SC_ENUM_PROCESS_INFO,
@@ -405,16 +412,43 @@ void listServices(SOCKET clientSocket) {
         return;
     }
 
-    std::string filename = "Services_" + getCurrentTimestamp() + ".txt";
-    std::ofstream outFile(filename);
+    // Lưu thông tin dịch vụ vào vector
+    std::vector<ServiceInfo> services;
     for (DWORD i = 0; i < servicesReturned; ++i) {
-        outFile << "Service Name: " << serviceStatus[i].lpServiceName << ", "
-            << "Display Name: " << serviceStatus[i].lpDisplayName << ", "
-            << "Status: " << (serviceStatus[i].ServiceStatusProcess.dwCurrentState == SERVICE_RUNNING ? "Running" : "Stopped") << "\n";
+        ServiceInfo info;
+        info.serviceName = serviceStatus[i].lpServiceName;
+        info.displayName = serviceStatus[i].lpDisplayName;
+        info.status = (serviceStatus[i].ServiceStatusProcess.dwCurrentState == SERVICE_RUNNING) ? "Running" : "Stopped";
+        services.push_back(info);
     }
 
+    // Sắp xếp vector theo tên dịch vụ
+    std::sort(services.begin(), services.end(), [](const ServiceInfo& a, const ServiceInfo& b) {
+        return a.serviceName < b.serviceName;
+        });
+
+    // Ghi danh sách dịch vụ vào file
+    std::string filename = "Services_" + getCurrentTimestamp() + ".txt";
+    std::ofstream outFile(filename);
+    if (!outFile) {
+        std::cerr << "Failed to open file for writing: " << filename << std::endl;
+        free(serviceStatus);
+        CloseServiceHandle(hSCManager);
+        return;
+    }
+
+    for (const auto& service : services) {
+        outFile << "Service Name: " << service.serviceName << ", "
+            << "Display Name: " << service.displayName << ", "
+            << "Status: " << service.status << "\n";
+    }
+
+    outFile.close();
+
+    // Dọn dẹp bộ nhớ và gửi file tới client
     free(serviceStatus);
     CloseServiceHandle(hSCManager);
+
     sendFile(clientSocket, filename);
 }
 
@@ -746,11 +780,11 @@ void captureScreenshot(SOCKET clientSocket) {
     GetBitmapBits(hBitmap, size, pixels);
 
     // Chuyển đổi từ BGRA sang RGBA
-for (int i = 0; i < size; i += 4) {
-    unsigned char temp = pixels[i];       // B
-    pixels[i] = pixels[i + 2];            // G
-    pixels[i + 2] = temp;                 // B
-}
+    for (int i = 0; i < size; i += 4) {
+        unsigned char temp = pixels[i];       // B
+        pixels[i] = pixels[i + 2];            // G
+        pixels[i + 2] = temp;                 // B
+    }
 
     // Lưu ảnh dưới định dạng PNG
     std::string filename = "Screenshot_" + getCurrentTimestamp() + ".png";
@@ -831,139 +865,77 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
     std::cout << "Successfully record the video and send to client." << std::endl;
 }
 
-int main() {
-    // Initialize winsock
-    WSADATA wsData;
-    WORD ver = MAKEWORD(2, 2);
-    int wsOk = WSAStartup(ver, &wsData);
-    if (wsOk != 0) {
-        std::cerr << "Can't Initialize winsock! Quitting" << std::endl;
-        return 1;
-    }
-
-    // Create a socket
-    SOCKET listening = socket(AF_INET, SOCK_STREAM, 0);
-    if (listening == INVALID_SOCKET) {
-        std::cerr << "Can't create a socket! Quitting" << std::endl;
-        return 1;
-    }
-
-    // Bind the IP address and port to the socket
-    sockaddr_in hint;
-    hint.sin_family = AF_INET;
-    hint.sin_port = htons(54000);
-    hint.sin_addr.S_un.S_addr = INADDR_ANY;
-
-    bind(listening, (sockaddr*)&hint, sizeof(hint));
-
-    // Tell Winsock the socket is for listening
-    listen(listening, SOMAXCONN);
-
-    // Wait for a connection
-    sockaddr_in client;
-    int clientSize = sizeof(client);
-    SOCKET clientSocket = accept(listening, (sockaddr*)&client, &clientSize);
-
-    char host[NI_MAXHOST];  // Client's remote name
-    char service[NI_MAXSERV]; // Service (i.e. port) the client is connected on
-
-    ZeroMemory(host, NI_MAXHOST);
-    ZeroMemory(service, NI_MAXSERV);
-
-    if (getnameinfo((sockaddr*)&client, sizeof(client), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0) {
-        std::cout << host << " connected on port " << service << std::endl;
-    }
-    else {
-        inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);
-        std::cout << host << " connected on port " << ntohs(client.sin_port) << std::endl;
-    }
-
-    // Close the listening socket
-    closesocket(listening);
-
+void handleClient(SOCKET clientSocket) {
     // While loop: accept and echo message back to client
     char buf[4096];
     while (true) {
         ZeroMemory(buf, 4096); // Reset the buffer before receiving new data
         // Wait for client to send data
         int bytesReceived = recv(clientSocket, buf, 4096, 0); // Receive data from client
+
+        std::cout << std::string(buf, 0, bytesReceived) << std::endl;
+
         if (bytesReceived == SOCKET_ERROR) {
             std::cerr << "Error in recv(). Quitting" << std::endl;
             break;
         }
 
         if (bytesReceived == 0) {
-            std::cout << "Client disconnected " << std::endl;
             break;
         }
 
-        std::cout << std::string(buf, 0, bytesReceived) << std::endl;
-
         if (std::string(buf, 0, bytesReceived) == "list applications") {
             listApplications(clientSocket);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 9) == "startApps") {
             // Lấy tên ứng dụng từ lệnh
             std::string appName = std::string(buf, 10, bytesReceived - 10); // Lấy chuỗi sau "startApps "
             startApplicationByName(clientSocket, appName);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "stopApps") {
             // Tách PID từ chuỗi lệnh nhận được
             std::string pidStr = std::string(buf, 9, bytesReceived - 9); // Lấy chuỗi sau "stopApps "
             DWORD pidToClose = std::stoul(pidStr); // Chuyển đổi PID sang số nguyên
             stopAppsAndProcById(clientSocket, pidToClose);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "list services") {
             listServices(clientSocket);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 9) == "startServ") {
             // Lấy tên ứng dụng từ lệnh
             std::string appName = std::string(buf, 10, bytesReceived - 10); // Lấy chuỗi sau "startServ "
             startServiceByName(clientSocket, appName);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "stopServ") {
             // Lấy tên ứng dụng từ lệnh
             std::string appName = std::string(buf, 9, bytesReceived - 9); // Lấy chuỗi sau "stopServ "
             stopServiceByName(clientSocket, appName);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "list processes") {
             listProcesses(clientSocket);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "stopProc") {
             // Tách PID từ chuỗi lệnh nhận được
             std::string pidStr = std::string(buf, 9, bytesReceived - 9); // Lấy chuỗi sau "stopProc "
             DWORD pidToClose = std::stoul(pidStr); // Chuyển đổi PID sang số nguyên
             stopAppsAndProcById(clientSocket, pidToClose);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "list ip") {
             listIPs(clientSocket);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "shutdown") {
             shutdownComputer(clientSocket);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "restart") {
             restartComputer(clientSocket);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "screenshot") {
             captureScreenshot(clientSocket);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 6) == "record") {
             std::string duration_seconds_str = std::string(buf, 7, bytesReceived - 7); // Lấy chuỗi sau "record "
             DWORD duration__seconds = std::stoul(duration_seconds_str); // Chuyển đổi duration_second_str sang số nguyên
             recordVideoFromCamera(clientSocket, duration__seconds);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "sendfile") {
             std::string filename_str = std::string(buf, 9, bytesReceived - 9);
@@ -972,7 +944,6 @@ int main() {
             filename_str.erase(filename_str.begin(), std::find_if(filename_str.begin(), filename_str.end(), [](unsigned char ch) { return !std::isspace(ch); }));
             filename_str.erase(std::find_if(filename_str.rbegin(), filename_str.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), filename_str.end());
             sendFile(clientSocket, filename_str);
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived).substr(0, 6) == "delete") {
             std::string filename_str = std::string(buf, 7, bytesReceived - 7);
@@ -983,35 +954,94 @@ int main() {
 
             if (!filename_str.empty()) {
                 deleteFile(clientSocket, filename_str);
-                std::cout << std::endl;
             }
             else {
                 std::string error = "Tên file không hợp lệ.";
                 std::cerr << error << std::endl;
                 sendText(clientSocket, error);
-                std::cout << std::endl;
             }
         }
         else if (std::string(buf, 0, bytesReceived) == "help") {
             sendFile(clientSocket, "help.txt");
-            std::cout << std::endl;
         }
         else if (std::string(buf, 0, bytesReceived) == "about") {
             sendFile(clientSocket, "about.txt");
-            std::cout << std::endl;
-        }
-        else {
-            std::cerr << "Command không hợp lệ , vui lòng nhập lại !" <<std::endl;
-            std::cout << std::endl;
         }
     }
 
-        // Close the client socket
-        closesocket(clientSocket);
+    closesocket(clientSocket);
+}
 
-        // Cleanup Winsock
+int main() {
+    // Initialize Winsock
+    WSADATA wsData;
+    WORD ver = MAKEWORD(2, 2);
+    if (WSAStartup(ver, &wsData) != 0) {
+        std::cerr << "Can't initialize Winsock! Quitting" << std::endl;
+        return -1;
+    }
+
+    // Create a listening socket
+    SOCKET listening = socket(AF_INET, SOCK_STREAM, 0);
+    if (listening == INVALID_SOCKET) {
+        std::cerr << "Can't create a socket! Quitting" << std::endl;
         WSACleanup();
+        return -1;
+    }
 
-        system("pause");
-        return 0;
+    // Bind the socket to an IP address and port
+    sockaddr_in hint;
+    hint.sin_family = AF_INET;
+    hint.sin_port = htons(54000);
+    hint.sin_addr.S_un.S_addr = INADDR_ANY;
+
+    if (bind(listening, (sockaddr*)&hint, sizeof(hint)) == SOCKET_ERROR) {
+        std::cerr << "Can't bind socket! Quitting" << std::endl;
+        closesocket(listening);
+        WSACleanup();
+        return -1;
+    }
+
+    // Tell Winsock the socket is for listening
+    listen(listening, SOMAXCONN);
+
+    while (true) {
+        std::cout << "Waiting for a connection..." << std::endl;
+
+        sockaddr_in client;
+        int clientSize = sizeof(client);
+        SOCKET clientSocket = accept(listening, (sockaddr*)&client, &clientSize);
+
+        if (clientSocket == INVALID_SOCKET) {
+            std::cerr << "Error accepting connection. Continuing..." << std::endl;
+            continue;
+        }
+
+        // Get client's information
+        char host[NI_MAXHOST];  // Client's remote name
+        char service[NI_MAXSERV]; // Service (i.e., port) the client is connected on
+
+        ZeroMemory(host, NI_MAXHOST);
+        ZeroMemory(service, NI_MAXSERV);
+
+        if (getnameinfo((sockaddr*)&client, sizeof(client), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0) {
+            std::cout << host << " connected on port " << service << "\n" << std::endl;
+        }
+        else {
+            inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);
+            std::cout << host << " connected on port " << ntohs(client.sin_port) << "\n" << std::endl;
+        }
+
+        // Call handleClient to process commands from this client
+        handleClient(clientSocket);
+
+        std::cout << host << " has disconnected.\n" << std::endl;
+    }
+
+    // Close listening socket
+    closesocket(listening);
+
+    // Cleanup Winsock
+    WSACleanup();
+    return 0;
 }
