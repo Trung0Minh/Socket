@@ -71,7 +71,7 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
 
     // Lấy kích thước tệp
     std::streamsize fileSize = inFile.tellg();
-    std::cout << "Initial file size: " << fileSize << std::endl;
+    std::cout << "Initial file size: " << fileSize <<" bytes" << std::endl;
     inFile.seekg(0, std::ios::beg);
 
     // Kiểm tra kích thước tệp (25MB = 25 * 1024 * 1024 bytes)
@@ -218,7 +218,7 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
         }
     }
 
-    std::cout << header << std::endl;
+    std::cout << header;
     std::cout << "File sent successfully!" << std::endl << std::endl;
     inFile.close();
 }
@@ -862,7 +862,6 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
     cv::destroyAllWindows();
     std::cout << "Video recording completed and saved at " << filename << std::endl;
     sendFile(clientSocket, filename);
-    std::cout << "Successfully record the video and send to client." << std::endl;
 }
 
 void handleClient(SOCKET clientSocket) {
@@ -955,17 +954,11 @@ void handleClient(SOCKET clientSocket) {
             if (!filename_str.empty()) {
                 deleteFile(clientSocket, filename_str);
             }
-            else {
-                std::string error = "Tên file không hợp lệ.";
-                std::cerr << error << std::endl;
-                sendText(clientSocket, error);
-            }
         }
-        else if (std::string(buf, 0, bytesReceived) == "help") {
-            sendFile(clientSocket, "help.txt");
-        }
-        else if (std::string(buf, 0, bytesReceived) == "about") {
-            sendFile(clientSocket, "about.txt");
+        else {
+            std::string error = "Incorrect command, please enter again. Use the 'help' command to see the available commands.";
+            std::cerr << error << std::endl;
+            sendText(clientSocket, error);
         }
     }
 
