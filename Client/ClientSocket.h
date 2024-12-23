@@ -14,30 +14,27 @@ class ClientSocket {
 private:
     WSADATA wsaData;
     SOCKET connectSocket;
-    struct addrinfo* result;
-    struct addrinfo* ptr;
-    struct addrinfo hints;
-    static const int SOCKET_TIMEOUT = 30000; // 30 seconds
-    static const int MAX_RETRY_COUNT = 3;
+    struct addrinfo* result, * ptr, hints;
+    static constexpr int SOCKET_TIMEOUT = 30000;
+    static constexpr int MAX_RETRY_COUNT = 3;
+    static constexpr int BUFFER_CHUNK_SIZE = 8192;
 
     std::function<void(const std::string&)> logCallback;
 
     bool initializeWinsock();
-    bool createSocket(const char* address, const char* port, int family);
-    bool connectToServer();
     void freeAddrInfo();
+    bool setNonBlocking(SOCKET sock);
     void log(const std::string& message);
 
 public:
     ClientSocket();
     ~ClientSocket();
 
-    void setLogCallback(std::function<void(const std::string&)> callback) { logCallback = callback; }
+    void setLogCallback(std::function<void(const std::string&)> callback);
     bool Connect(const char* address, const char* port, int family);
     bool Close();
-    bool IsConnected() const;
+    bool IsConnected();
     bool Send(const char* data, int length);
     size_t Receive(char* outputBuffer, size_t bufferSize);
     SOCKET GetSocket() const { return connectSocket; }
-    bool checkConnection();
 };

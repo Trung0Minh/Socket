@@ -193,23 +193,11 @@ bool EmailSender::sendEmail(const std::string& to,
             // Tạo vector chứa binary data
             std::vector<uint8_t> fileData(body.begin(), body.end());
 
-            // Tạo subject phù hợp với loại file
-            std::string enhancedSubject = subject;
-            if (mimetype.find("image") != std::string::npos) {
-                enhancedSubject += " [Image Attachment]";
-            }
-            else if (mimetype.find("video") != std::string::npos) {
-                enhancedSubject += " [Video Attachment]";
-            }
-            else if (mimetype == "text/txt") {
-                enhancedSubject += " [Text File Attachment]";
-            }
-
             // Tạo nội dung mô tả
             std::string description = "Attached file: " + filename + "\nType: " + mimetype;
 
             // Gửi email với attachment
-            rawEmail = createRawEmail(to, enhancedSubject, description, fileData, filename);
+            rawEmail = createRawEmail(to, subject, description, fileData, filename);
         }
         else {
             log("Unsupported type: " + std::string(type));

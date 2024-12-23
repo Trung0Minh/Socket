@@ -13,7 +13,7 @@
 class EmailMonitor {
 public:
     using EmailCallback = std::function<void(const std::string&, const std::string&, const std::string&)>;
-    using CommandExecutor = std::function<bool(const std::string&, const std::string&, std::string&, const std::string&)>;
+    using CommandExecutor = std::function<bool(const std::string&, const std::string&, std::string&, const std::string&, bool&)>;
 
     EmailMonitor();
     ~EmailMonitor();

@@ -5,7 +5,7 @@
 // Constructor
 ClientUI::ClientUI() : wxFrame(nullptr, wxID_ANY, "Client", wxDefaultPosition, wxSize(800, 600)) {
     client = new Client();
-    client->setLogCallback([this](const std::string& msg) { ProcessLogMessage(wxString::FromUTF8(msg)); });
+    client->setLogCallback([this](const std::string& msg) { AddLogMessage(wxString::FromUTF8(msg)); });
 
     CreateControls();
     LayoutControls();
@@ -115,16 +115,30 @@ void ClientUI::OnConnectClick(wxCommandEvent& event) {
         return;
     }
 
-    if (client->connect(ip.ToStdString())) {
-        connectedServers.push_back(std::make_pair(ip, true));  // Sử dụng make_pair
-        UpdateServerList();
-        completeButton->Enable(true);
-        serverIpInput->SetValue("");
-        serverIpInput->SetHint("Enter another server IP or click Complete");
-    }
-    else {
-        wxMessageBox("Connection failed! Please try again.", "Error", wxOK | wxICON_ERROR);
-    }
+    // Disable controls during connection attempt
+    EnableConnectionControls(false);
+
+    // Create connection thread
+    std::thread([this, ip]() {
+        bool connected = client->connect(ip.ToStdString());
+
+        // Use CallAfter to update UI from the main thread
+        wxTheApp->CallAfter([this, connected, ip]() {
+            EnableConnectionControls(true);
+
+            if (connected) {
+                connectedServers.push_back(std::make_pair(ip, true));
+                UpdateServerList();
+                completeButton->Enable(true);
+                serverIpInput->SetValue("");
+                serverIpInput->SetHint("Enter another server IP or click Complete");
+            }
+            else {
+                wxMessageBox("Connection failed! Server might be offline or unreachable.",
+                    "Error", wxOK | wxICON_ERROR);
+            }
+            });
+        }).detach();
 }
 
 void ClientUI::OnCompleteClick(wxCommandEvent& event) {
@@ -228,15 +242,4 @@ void ClientUI::UpdateServerList() {
 bool ClientUI::IsServerConnected(const wxString& ip) {
     return std::any_of(connectedServers.begin(), connectedServers.end(),
         [&ip](const auto& pair) { return pair.first == ip; });
-}
-
-void ClientUI::ProcessLogMessage(const wxString& message) {
-    if (message.StartsWith("STATUS:CONNECTION_LOST:")) {
-        wxString ip = message.Mid(message.Find(':', true) + 1);
-        CallAfter([this, ip]() {
-            HandleServerDisconnect(ip);
-            });
-        return;
-    }
-    AddLogMessage(message);
 }

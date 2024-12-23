@@ -81,7 +81,7 @@ EmailMonitor::CurlResponse EmailMonitor::performCurlRequest(const std::string& u
     curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &response.data);
-    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, 60L);
     curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYPEER, 0L);
 
     if (method != "GET") {
@@ -228,7 +228,7 @@ EmailMonitor::EmailContent EmailMonitor::parseEmailContent(const nlohmann::json&
 
 void EmailMonitor::monitorEmails() {
     const auto CHECK_INTERVAL = 1s;
-    const auto NETWORK_TIMEOUT = 30s;
+    const auto NETWORK_TIMEOUT = 60s;
 
     while (running) {
         try {
@@ -274,18 +274,27 @@ void EmailMonitor::processEmail(const std::string& emailId) {
         auto emailData = json::parse(emailContent);
         auto content = parseEmailContent(emailData);
 
+        log("Command '" + content.command + "' is requested to " + content.serverIp);
+
         std::string output;
-        if (commandExecutor && commandExecutor(content.serverIp, content.command, output, content.from)) {
+        bool shouldMarkAsRead = false;
+        if (commandExecutor && commandExecutor(content.serverIp, content.command, output, content.from, shouldMarkAsRead)) {
             if (callback) {
                 callback(content.from, content.command, output);
             }
+        }
+
+        // Kiểm tra biến shouldMarkAsRead để quyết định có đánh dấu email là đã đọc hay không
+        if (shouldMarkAsRead) {
             markEmailAsRead(emailId);
         }
     }
     catch (const json::exception& e) {
         log("Error parsing email JSON: " + std::string(e.what()));
+        markEmailAsRead(emailId); // Đánh dấu là đã đọc khi có lỗi parse
     }
     catch (const std::exception& e) {
         log("Error processing email: " + std::string(e.what()));
+        markEmailAsRead(emailId); // Đánh dấu là đã đọc khi có lỗi xử lý
     }
 }
