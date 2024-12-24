@@ -10,11 +10,12 @@ END_EVENT_TABLE()
 
 AuthUI::AuthUI(wxWindow* parent, const wxString& authUrl)
     : wxDialog(parent, wxID_ANY, "Authorization Required",
-        wxDefaultPosition, wxSize(600, 300))
+        wxDefaultPosition, wxSize(400, 300))
 {
     CreateControls(authUrl);
     Center();
 }
+
 
 void AuthUI::CreateControls(const wxString& authUrl)
 {
@@ -32,11 +33,12 @@ void AuthUI::CreateControls(const wxString& authUrl)
 
     // URL and Copy button in horizontal layout
     wxBoxSizer* urlSizer = new wxBoxSizer(wxHORIZONTAL);
-    urlLink = new wxHyperlinkCtrl(this, wxID_ANY, authUrl, authUrl);
+    // Sử dụng tên hiển thị ngắn gọn "Authorization Link" thay vì URL đầy đủ
+    urlLink = new wxHyperlinkCtrl(this, wxID_ANY, "Authorization Link", authUrl);
     copyUrlButton = new wxButton(this, wxID_COPY, "Copy URL");
 
-    urlSizer->Add(urlLink, 1, wxALL | wxEXPAND, 5);
-    urlSizer->Add(copyUrlButton, 0, wxALL, 5);
+    urlSizer->Add(urlLink, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);  // Đã thay đổi proportion từ 1 thành 0
+    urlSizer->Add(copyUrlButton, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
 
     mainSizer->Add(urlSizer, 0, wxEXPAND | wxALL, 5);
 
@@ -76,6 +78,18 @@ void AuthUI::OnOK(wxCommandEvent& event)
             "Error", wxOK | wxICON_ERROR);
         return;
     }
+
+    if (validateCode) {
+        std::string errorMessage;
+        if (!validateCode(authorizationCode, errorMessage)) {
+            wxMessageBox("Invalid authorization code: " + errorMessage + "\nPlease try again.",
+                "Error", wxOK | wxICON_ERROR);
+            authCodeInput->SetValue("");
+            authCodeInput->SetFocus();
+            return;
+        }
+    }
+
     EndModal(wxID_OK);
 }
 

@@ -15,6 +15,7 @@ private:
     WSADATA wsaData;
     SOCKET connectSocket;
     struct addrinfo* result, * ptr, hints;
+
     static constexpr int SOCKET_TIMEOUT = 30000;
     static constexpr int MAX_RETRY_COUNT = 3;
     static constexpr int BUFFER_CHUNK_SIZE = 8192;

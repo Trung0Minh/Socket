@@ -201,23 +201,43 @@ bool ClientSocket::Send(const char* data, int length) {
 }
 
 size_t ClientSocket::Receive(char* outputBuffer, size_t bufferSize) {
-    if (!IsConnected()) return static_cast<size_t>(-1);
+    if (!IsConnected()) {
+        log("Socket not connected");
+        return static_cast<size_t>(-1);
+    }
+
+    // Đầu tiên nhận 1 byte để kiểm tra kết nối
+    char testByte;
+    int testResult = recv(connectSocket, &testByte, 1, MSG_PEEK);
+    if (testResult <= 0) {
+        log("Connection test failed");
+        return static_cast<size_t>(-1);
+    }
 
     std::string headerStr;
     char headerByte;
     bool foundNewline = false;
+    size_t headerSize = 0;
 
     // Nhận header
-    while (!foundNewline) {
+    while (!foundNewline && headerSize < 1024) { // Giới hạn header size
         int result = recv(connectSocket, &headerByte, 1, 0);
         if (result <= 0) {
-            log("Failed to receive header");
+            log("Failed to receive header byte");
             return static_cast<size_t>(-1);
         }
+
+        headerStr += headerByte;
+        headerSize++;
+
         if (headerByte == '\n') {
             foundNewline = true;
         }
-        headerStr += headerByte;
+    }
+
+    if (!foundNewline) {
+        log("Header too long or invalid");
+        return static_cast<size_t>(-1);
     }
 
     // Parse size từ header
@@ -241,9 +261,10 @@ size_t ClientSocket::Receive(char* outputBuffer, size_t bufferSize) {
         return static_cast<size_t>(-1);
     }
 
-    // Kiểm tra xem buffer có đủ lớn không
+    // Kiểm tra buffer size
     if (dataSize + headerStr.size() > bufferSize) {
-        log("Received data size exceeds buffer capacity");
+        log("Data size too large for buffer: " + std::to_string(dataSize + headerStr.size()) +
+            " > " + std::to_string(bufferSize));
         return static_cast<size_t>(-1);
     }
 
@@ -251,28 +272,29 @@ size_t ClientSocket::Receive(char* outputBuffer, size_t bufferSize) {
     std::memcpy(outputBuffer, headerStr.c_str(), headerStr.size());
     size_t totalReceived = headerStr.size();
 
-    // Nhận phần data
+    // Nhận data
     size_t dataReceived = 0;
     while (dataReceived < dataSize) {
-        size_t bytesToReceive = min(
+        int bytesToReceive = static_cast<int>(min(
             static_cast<size_t>(8192),
             dataSize - dataReceived
-        );
-        int bytesReceived = recv(connectSocket,
+        ));
+
+        int result = recv(connectSocket,
             outputBuffer + totalReceived + dataReceived,
-            static_cast<int>(bytesToReceive),
+            bytesToReceive,
             0);
 
-        if (bytesReceived <= 0) {
-            log("Failed to receive file data");
+        if (result <= 0) {
+            std::stringstream ss;
+            ss << "Failed to receive data. WSA error: " << WSAGetLastError()
+                << ", Received so far: " << dataReceived << "/" << dataSize;
+            log(ss.str());
             return static_cast<size_t>(-1);
         }
-        dataReceived += bytesReceived;
-    }
 
-    std::stringstream ss;
-    ss << "Data received successfully! Size: " << (totalReceived + dataReceived) << " bytes" << std::endl;
-    log(ss.str());
+        dataReceived += result;
+    }
 
     return totalReceived + dataReceived;
 }

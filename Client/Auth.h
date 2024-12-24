@@ -1,4 +1,5 @@
-﻿#ifndef AUTH_H
+﻿// Auth.h
+#ifndef AUTH_H
 #define AUTH_H
 
 #include <string>
@@ -9,7 +10,7 @@ public:
     Auth(const std::string& credentialsFile, const std::string& tokenFile = "");
     bool authenticate();
     bool hasValidToken();
-    std::string getAuthUrl() const;  // Method mới để lấy URL xác thực
+    std::string getAuthUrl() const;
     void processAuthorizationCode(const std::string& authCode);
     bool isAuthenticationCancelled() const { return authenticationCancelled; }
 

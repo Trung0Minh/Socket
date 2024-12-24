@@ -3,6 +3,7 @@
 #include <wx/wx.h>
 #include <wx/textctrl.h>
 #include <wx/listctrl.h>
+#include <wx/hyperlink.h>
 #include <vector>
 #include <mutex>
 #include <thread>
@@ -26,6 +27,8 @@ private:
     wxButton* disconnectButton;
     wxTextCtrl* logArea;
     wxTimer* updateTimer;
+    wxButton* aboutButton;
+    wxButton* helpButton;
 
     // Layout Management
     wxBoxSizer* mainSizer;
@@ -40,6 +43,9 @@ private:
     void OnCompleteClick(wxCommandEvent& event);
     void OnDisconnectClick(wxCommandEvent& event);
     void OnServerSelected(wxListEvent& event);
+    void OnAboutClick(wxCommandEvent& event);
+    void OnHelpClick(wxCommandEvent& event);
+
     void OnClose(wxCloseEvent& event);
     void OnTimer(wxTimerEvent& event);
 

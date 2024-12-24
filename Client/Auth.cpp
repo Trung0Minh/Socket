@@ -44,27 +44,32 @@ bool Auth::authenticate() {
 }
 
 void Auth::requestAuthorizationCode() {
-    std::string authUrl = authUri +
-        "?client_id=" + clientId +
-        "&redirect_uri=urn:ietf:wg:oauth:2.0:oob" +
-        "&scope=https://mail.google.com/" +
-        "&response_type=code";
+    std::string authUrl = getAuthUrl();
 
-    // Tạo một temporary frame làm parent cho dialog
     wxFrame* tempFrame = new wxFrame(nullptr, wxID_ANY, "");
     AuthUI* dialog = new AuthUI(tempFrame, wxString(authUrl));
 
+    // Thiết lập callback cho validation
+    dialog->SetValidationCallback(
+        [this](const std::string& code, std::string& errorMessage) -> bool {
+            try {
+                token = exchangeAuthorizationCodeForTokens(code);
+                saveToken(token);
+                return true;
+            }
+            catch (const std::exception& e) {
+                errorMessage = e.what();
+                return false;
+            }
+            catch (...) {
+                errorMessage = "Unknown error occurred";
+                return false;
+            }
+        }
+    );
+
     if (dialog->ShowModal() == wxID_OK) {
-        try {
-            std::string authCode = dialog->GetAuthorizationCode();
-            token = exchangeAuthorizationCodeForTokens(authCode);
-            saveToken(token);
-        }
-        catch (const std::exception&) {
-            dialog->Destroy();
-            tempFrame->Destroy();
-            throw; // Re-throw nếu có lỗi trong quá trình xử lý authorization code
-        }
+        std::string authCode = dialog->GetAuthorizationCode();
     }
     else {
         authenticationCancelled = true;
@@ -81,36 +86,42 @@ nlohmann::json Auth::exchangeAuthorizationCodeForTokens(const std::string& authC
     char errorBuffer[CURL_ERROR_SIZE];
 
     curl = curl_easy_init();
-    if (curl) {
-        std::string postFields = "code=" + authCode +
-            "&client_id=" + clientId +
-            "&client_secret=" + clientSecret +
-            "&redirect_uri=urn:ietf:wg:oauth:2.0:oob" +
-            "&grant_type=authorization_code";
+    if (!curl) {
+        throw std::runtime_error("Failed to initialize CURL");
+    }
 
-        curl_easy_setopt(curl, CURLOPT_URL, tokenUri.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postFields.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-        curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errorBuffer);
-        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
+    std::string postFields = "code=" + authCode +
+        "&client_id=" + clientId +
+        "&client_secret=" + clientSecret +
+        "&redirect_uri=urn:ietf:wg:oauth:2.0:oob" +
+        "&grant_type=authorization_code";
 
-        // Disable SSL certificate verification (only for testing)
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_URL, tokenUri.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postFields.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errorBuffer);
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
-        res = curl_easy_perform(curl);
+    res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
 
-        if (res != CURLE_OK) {
-            curl_easy_cleanup(curl);
-            throw std::runtime_error("Failed to get tokens");
-        }
-
-        curl_easy_cleanup(curl);
+    if (res != CURLE_OK) {
+        throw std::runtime_error(std::string("CURL error: ") + errorBuffer);
     }
 
     try {
-        return json::parse(readBuffer);
+        auto response = json::parse(readBuffer);
+        if (response.contains("error")) {
+            throw std::runtime_error(
+                response.contains("error_description")
+                ? response["error_description"].get<std::string>()
+                : response["error"].get<std::string>()
+            );
+        }
+        return response;
     }
     catch (const json::parse_error&) {
         throw std::runtime_error("Failed to parse server response");

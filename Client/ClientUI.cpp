@@ -43,6 +43,9 @@ void ClientUI::CreateControls() {
     connectButton = new wxButton(connectionBox, wxID_ANY, "Connect");
     completeButton = new wxButton(connectionBox, wxID_ANY, "Complete");
     completeButton->Enable(false);
+    helpButton = new wxButton(connectionBox, wxID_ANY, "Help");
+
+    aboutButton = new wxButton(connectionBox, wxID_ANY, "About");
 
     // Log Area
     logArea = new wxTextCtrl(mainPanel, wxID_ANY, "",
@@ -69,6 +72,8 @@ void ClientUI::LayoutControls() {
     wxBoxSizer* buttonSizer = new wxBoxSizer(wxHORIZONTAL);
     buttonSizer->Add(connectButton, 0, wxALL, 5);
     buttonSizer->Add(completeButton, 0, wxALL, 5);
+    buttonSizer->Add(aboutButton, 0, wxALL, 5);
+    buttonSizer->Add(helpButton, 0, wxALL, 5);
 
     connectionSizer->Add(inputSizer, 0, wxEXPAND);
     connectionSizer->Add(buttonSizer, 0, wxALIGN_RIGHT);
@@ -89,6 +94,8 @@ void ClientUI::BindEvents() {
     serverIpInput->Bind(wxEVT_TEXT_ENTER, &ClientUI::OnConnectClick, this);
     connectButton->Bind(wxEVT_BUTTON, &ClientUI::OnConnectClick, this);
     completeButton->Bind(wxEVT_BUTTON, &ClientUI::OnCompleteClick, this);
+    aboutButton->Bind(wxEVT_BUTTON, &ClientUI::OnAboutClick, this);
+    helpButton->Bind(wxEVT_BUTTON, &ClientUI::OnHelpClick, this);
     disconnectButton->Bind(wxEVT_BUTTON, &ClientUI::OnDisconnectClick, this);
     serverList->Bind(wxEVT_LIST_ITEM_SELECTED, &ClientUI::OnServerSelected, this);
     this->Bind(wxEVT_CLOSE_WINDOW, &ClientUI::OnClose, this);
@@ -99,6 +106,160 @@ void ClientUI::BindEvents() {
 bool ClientUI::ValidateIP(const wxString& ip) {
     wxRegEx ipRegex("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
     return ipRegex.Matches(ip);
+}
+
+void ClientUI::OnAboutClick(wxCommandEvent& event) {
+    wxDialog* aboutDialog = new wxDialog(this, wxID_ANY, "About",
+        wxDefaultPosition, wxSize(400, 250));
+
+    wxBoxSizer* dialogSizer = new wxBoxSizer(wxVERTICAL);
+
+    // Tạo panel cho dialog
+    wxPanel* panel = new wxPanel(aboutDialog);
+    wxBoxSizer* panelSizer = new wxBoxSizer(wxVERTICAL);
+
+    // Thêm nội dung
+    wxStaticText* title = new wxStaticText(panel, wxID_ANY,
+        "Computer Networking - 23TNT1");
+    wxFont titleFont = title->GetFont();
+    titleFont.SetWeight(wxFONTWEIGHT_BOLD);
+    title->SetFont(titleFont);
+
+    wxStaticText* teacher = new wxStaticText(panel, wxID_ANY,
+        "Instructor: Do Hoang Cuong");
+    wxStaticText* memberTitle = new wxStaticText(panel, wxID_ANY,
+        "Members:");
+    wxStaticText* member1 = new wxStaticText(panel, wxID_ANY,
+        "23122014: Hoang Minh Trung");
+    wxStaticText* member2 = new wxStaticText(panel, wxID_ANY,
+        "23122021: Bui Duy Bao");
+    wxStaticText* member3 = new wxStaticText(panel, wxID_ANY,
+        "23122025: Pham Ngoc Duy");
+
+    // Tạo BoxSizer ngang để chứa text "Demo" và hyperlink
+    wxBoxSizer* demoSizer = new wxBoxSizer(wxHORIZONTAL);
+    wxStaticText* demoText = new wxStaticText(panel, wxID_ANY, "Demo: ");
+    wxHyperlinkCtrl* demoLink = new wxHyperlinkCtrl(panel, wxID_ANY,
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ&pp=ygUJcmljayByb2xs",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ&pp=ygUJcmljayByb2xs");
+
+    demoSizer->Add(demoText, 0, wxALIGN_CENTER_VERTICAL);
+    demoSizer->Add(demoLink, 0, wxALIGN_CENTER_VERTICAL);
+
+    // Thêm các thành phần vào panelSizer
+    panelSizer->Add(title, 0, wxALL, 5);
+    panelSizer->Add(teacher, 0, wxALL, 5);
+    panelSizer->Add(memberTitle, 0, wxALL, 5);
+    panelSizer->Add(member1, 0, wxLEFT, 15);
+    panelSizer->Add(member2, 0, wxLEFT, 15);
+    panelSizer->Add(member3, 0, wxLEFT, 15);
+    panelSizer->AddSpacer(10);
+    panelSizer->Add(demoSizer, 0, wxALL, 5);
+
+    panel->SetSizer(panelSizer);
+
+    // Thêm nút OK
+    wxButton* okButton = new wxButton(aboutDialog, wxID_OK, "OK");
+    dialogSizer->Add(panel, 1, wxEXPAND | wxALL, 5);
+    dialogSizer->Add(okButton, 0, wxALIGN_CENTER | wxBOTTOM, 10);
+
+    aboutDialog->SetSizer(dialogSizer);
+    aboutDialog->Center();
+    aboutDialog->ShowModal();
+    aboutDialog->Destroy();
+}
+
+void ClientUI::OnHelpClick(wxCommandEvent& event) {
+    wxDialog* helpDialog = new wxDialog(this, wxID_ANY, "Help Guide",
+        wxDefaultPosition, wxSize(600, 700));
+
+    wxBoxSizer* dialogSizer = new wxBoxSizer(wxVERTICAL);
+
+    wxScrolledWindow* scrolledWindow = new wxScrolledWindow(helpDialog, wxID_ANY);
+    scrolledWindow->SetScrollRate(5, 5);
+
+    wxBoxSizer* contentSizer = new wxBoxSizer(wxVERTICAL);
+
+    // Tạo panel chứa tiêu đề với nền màu nhạt
+    wxPanel* titlePanel = new wxPanel(scrolledWindow, wxID_ANY);
+    titlePanel->SetBackgroundColour(wxColour(240, 240, 240));  // Màu nền xám nhạt
+
+    // Tạo tiêu đề Welcome với titlePanel là parent
+    wxStaticText* welcomeTitle = new wxStaticText(titlePanel, wxID_ANY,
+        "Welcome to the Client Application!");
+
+    // Tùy chỉnh font cho tiêu đề
+    wxFont titleFont = welcomeTitle->GetFont();
+    titleFont.SetPointSize(16);  // Kích thước font lớn hơn
+    titleFont.SetWeight(wxFONTWEIGHT_BOLD);  // Chữ đậm
+    welcomeTitle->SetFont(titleFont);
+    welcomeTitle->SetForegroundColour(wxColour(0, 102, 204));  // Màu xanh dương
+
+    wxBoxSizer* titlePanelSizer = new wxBoxSizer(wxVERTICAL);
+    titlePanelSizer->Add(welcomeTitle, 0, wxALIGN_CENTER | wxALL, 15);
+    titlePanel->SetSizer(titlePanelSizer);
+
+    // Thêm nội dung chính
+    wxTextCtrl* helpText = new wxTextCtrl(scrolledWindow, wxID_ANY,
+        "This application allows you to connect to servers, send and receive data, and view logs. "
+        "Below is a brief guide on how to use the application:\n\n"
+        "1. *Enter Server IP*: Enter the IP address of the server you wish to connect to in the 'Enter IP address' field.\n"
+        "2. *Connect to Server*: Click the 'Connect' button to initiate the connection to the server.\n"
+        "3. *Disconnect from Server*: Once connected, you can disconnect from the server by selecting the server from the list and clicking 'Disconnect server'.\n"
+        "4. *Complete Setup*: After connecting, you can complete the setup by clicking 'Complete'. This will finalize the connection process and start the client.\n"
+        "5. *Log Area*: All activities such as connection status, disconnections, and any errors will be displayed in the 'Log Area'.\n"
+        "6. *About*: Click the 'About' button to learn more about the application.\n\n"
+        "For any further assistance, feel free to reach out to our support team.\n\n"
+        "Here is the list of commands you can relate\n\n"
+        "* Applications:\n"
+        "- list applications : List the currently running applications\n"
+        "- startApps + application name: Open an application(can include or exclude the .exe extension)\n"
+        "- stopApps + PID: Close an application using its PID that is available in the list of applications\n\n"
+        "* Services:\n"
+        "- list services : List the services that are currently running or stopped\n"
+        "- startServ + service name: Start a service(no need to include the extension)\n"
+        "- stopServ + service name: Stop a service by its name(same as startServ)\n\n"
+        "* Process:\n"
+        "- list processes : List the processes that are currently running\n"
+        "- stopProc + PID: Terminate a process using its PID that is available in the list of processes\n\n"
+        "- list ip : List the network IP addresses of the server\n\n"
+        "- shutdown: Shut down the server machine\n\n"
+        "- restart: Restart the server machine\n\n"
+        "- screenshot: Capture a screenshot of the server's screen\n\n"
+        "- record + duration in seconds : Start the camera and record for the specified duration\n\n"
+        "- sendfile + absolute file path on the server: Retrieve a file from the server\n\n"
+        "- delete + absolute file path on the server: Delete a file on the server\n",
+        wxDefaultPosition, wxDefaultSize,
+        wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH2);
+
+    // Thiết lập font cho nội dung chính
+    wxFont helpFont(10, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+    helpText->SetFont(helpFont);
+
+    // Thêm các thành phần vào content sizer
+    contentSizer->Add(titlePanel, 0, wxEXPAND | wxALL, 0);  // Thêm panel tiêu đề
+    contentSizer->Add(helpText, 1, wxEXPAND | wxALL, 10);   // Thêm nội dung chính
+
+    scrolledWindow->SetSizer(contentSizer);
+
+    // Tính toán kích thước tối thiểu cần thiết
+    wxSize minSize = contentSizer->GetMinSize();
+    scrolledWindow->SetVirtualSize(minSize);
+
+    // Thêm nút OK
+    wxButton* okButton = new wxButton(helpDialog, wxID_OK, "OK");
+
+    dialogSizer->Add(scrolledWindow, 1, wxEXPAND | wxALL, 5);
+    dialogSizer->Add(okButton, 0, wxALIGN_CENTER | wxALL, 10);
+
+    helpDialog->SetSizer(dialogSizer);
+
+    // Đặt kích thước tối thiểu cho dialog
+    helpDialog->SetMinSize(wxSize(500, 600));
+
+    helpDialog->Center();
+    helpDialog->ShowModal();
+    helpDialog->Destroy();
 }
 
 // Handles connect button click event
