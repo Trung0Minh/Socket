@@ -1,6 +1,5 @@
 #define _CRT_SECURE_NO_WARNINGS
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#pragma comment(lib, "gdiplus.lib")
 
 #include <iostream>
 #include <WS2tcpip.h>
@@ -10,7 +9,6 @@
 #include <windows.h>
 #include <sstream>
 #include <ctime>
-#include <gdiplus.h>
 #include <opencv2/opencv.hpp>
 #include <winsock2.h>
 #include <psapi.h>
@@ -43,7 +41,7 @@ void sendText(SOCKET clientSocket, const std::string& message) {
 
     // Kiểm tra lỗi khi gửi tiêu đề
     if (headerResult == SOCKET_ERROR) {
-        std::cerr << "Failed to send header! Error code: " << WSAGetLastError() << std::endl;
+        std::cerr << "Failed to send header! Error code: " << WSAGetLastError() << "\n" << std::endl;
         return;
     }
 
@@ -52,11 +50,11 @@ void sendText(SOCKET clientSocket, const std::string& message) {
 
     // Kiểm tra lỗi khi gửi nội dung
     if (messageResult == SOCKET_ERROR) {
-        std::cerr << "Failed to send message! Error code: " << WSAGetLastError() << std::endl;
+        std::cerr << "Failed to send message! Error code: " << WSAGetLastError() << "\n" << std::endl;
         return;
     }
 
-    std::cout << "Text sent successfully!" << std::endl;
+    std::cout << "Text sent successfully!\n" << std::endl;
 }
 
 void sendFile(SOCKET clientSocket, const std::string& filename) {
@@ -78,7 +76,7 @@ void sendFile(SOCKET clientSocket, const std::string& filename) {
     const std::streamsize maxSize = 25 * 1024 * 1024;
     if (fileSize > maxSize) {
         std::cerr << "File size exceeds 25MB: " << filename << std::endl;
-        std::string errorMessage = "TYPE:text|SIZE:0\nFile size exceeds 25MB.";
+        std::string errorMessage = "File size exceeds 25MB.";
         sendText(clientSocket, errorMessage);
         inFile.close();
         return;
@@ -650,13 +648,13 @@ void listIPs(SOCKET clientSocket) {
     std::cout << "Successfully sent list of IP to client." << std::endl;
 }
 
-void shutdownComputer(SOCKET clientSocket) {
+void shutdownComputer(SOCKET clientSocket, int countdown_seconds) {
     // Gửi thông báo cho client trước khi tắt máy
-    std::string shutdownMessage = "The computer is shutting down after 10 seconds.\n";
+    std::string shutdownMessage = "The computer is shutting down after " + std::to_string(countdown_seconds) + " seconds.\n";
     sendText(clientSocket, shutdownMessage);
 
     // Đợi một chút để client có thể nhận được thông báo
-    Sleep(10000);  // Đợi 10 giây (thời gian này có thể thay đổi tùy vào tình huống)
+    Sleep(countdown_seconds);  // Đợi x giây (thời gian này có thể thay đổi tùy vào client ghi nhận từ user)
 
     // Kiểm tra quyền tắt máy
     HANDLE hToken;
@@ -702,13 +700,13 @@ void shutdownComputer(SOCKET clientSocket) {
     }
 }
 
-void restartComputer(SOCKET clientSocket) {
+void restartComputer(SOCKET clientSocket, int countdown_seconds) {
     // Gửi thông báo cho client trước khi khởi động lại máy
-    std::string restartMessage = "The computer is restarting shortly.\n";
+    std::string restartMessage = "The computer is restarting after " + std::to_string(countdown_seconds) + " seconds.\n";
     sendText(clientSocket, restartMessage);
 
     // Đợi một chút để client có thể nhận được thông báo
-    Sleep(5000);  // Đợi 5 giây (thời gian này có thể thay đổi tùy vào tình huống)
+    Sleep(countdown_seconds);  // Đợi x giây (thời gian này có thể thay đổi tùy vào client ghi nhận từ user)
 
     // Kiểm tra quyền tắt máy (quyền này cũng cần để khởi động lại máy)
     HANDLE hToken;
@@ -799,7 +797,7 @@ void captureScreenshot(SOCKET clientSocket) {
 }
 
 void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
-    cv::VideoCapture camera(0); // Mở camera mặc định (camera ID là 0)
+    cv::VideoCapture camera(0); // Mở camera mặc định
     if (!camera.isOpened()) {
         std::string error = "Could not open the camera.";
         std::cerr << error << std::endl;
@@ -807,19 +805,14 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
         return;
     }
 
-    // Lấy FPS thực tế từ camera
+    // Lấy thông tin từ camera
     double actualFPS = camera.get(cv::CAP_PROP_FPS);
-    if (actualFPS <= 0) {
-        actualFPS = 30; // Giá trị mặc định nếu camera không cung cấp thông tin FPS
-    }
-
-    std::string filename = "Record_" + getCurrentTimestamp() + ".mp4";
-
+    if (actualFPS <= 0) actualFPS = 30; // Giá trị mặc định
     int frameWidth = static_cast<int>(camera.get(cv::CAP_PROP_FRAME_WIDTH));
     int frameHeight = static_cast<int>(camera.get(cv::CAP_PROP_FRAME_HEIGHT));
     cv::Size frameSize(frameWidth, frameHeight);
 
-    // Tạo đối tượng VideoWriter
+    std::string filename = "Record_" + getCurrentTimestamp() + ".mp4";
     cv::VideoWriter videoWriter(filename, cv::VideoWriter::fourcc('H', '2', '6', '4'), actualFPS, frameSize);
 
     if (!videoWriter.isOpened()) {
@@ -830,39 +823,50 @@ void recordVideoFromCamera(SOCKET clientSocket, int duration_seconds) {
     }
 
     std::cout << "Start recording video..." << std::endl;
-
-    int frameCount = static_cast<int>(duration_seconds * actualFPS); // Tính số khung hình cần ghi
     auto startTime = std::chrono::high_resolution_clock::now();
+    auto endTime = startTime + std::chrono::seconds(duration_seconds);
 
-    for (int i = 0; i < frameCount; ++i) {
-        cv::Mat frame;
-        camera >> frame; // Đọc khung hình từ camera
-        if (frame.empty()) {
-            std::string error = "Failed to capture frame.";
-            std::cerr << error << std::endl;
-            sendText(clientSocket, error);
-            break;
+    try {
+        while (std::chrono::high_resolution_clock::now() < endTime) {
+            cv::Mat frame;
+            camera >> frame; // Đọc khung hình
+            if (frame.empty()) {
+                std::string error = "Failed to capture frame.";
+                std::cerr << error << std::endl;
+                sendText(clientSocket, error);
+                break;
+            }
+
+            videoWriter.write(frame); // Ghi khung hình
+            cv::imshow("Recording...", frame);
+
+            // Tính toán và kiểm soát thời gian
+            auto frameEnd = std::chrono::high_resolution_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(frameEnd - startTime).count();
+            int delay = static_cast<int>(1000.0 / actualFPS) - elapsed;
+            if (delay > 0) cv::waitKey(delay);
+            startTime = frameEnd;
+
+            // Kiểm tra phím thoát
+            if (cv::waitKey(1) == 27) { // Phím ESC
+                std::cout << "Recording stopped by user." << std::endl;
+                break;
+            }
         }
-
-        videoWriter.write(frame); // Ghi khung hình vào file video
-        cv::imshow("Recording...", frame);
-
-        // Kiểm soát thời gian giữa các khung hình
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double, std::milli> elapsed = currentTime - startTime;
-        int delay = static_cast<int>((1000.0 / actualFPS) - elapsed.count());
-        if (delay > 0) {
-            cv::waitKey(delay);
-        }
-        startTime = std::chrono::high_resolution_clock::now();
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Exception occurred: " << e.what() << std::endl;
+        sendText(clientSocket, "An error occurred during recording.");
     }
 
     camera.release();
     videoWriter.release();
     cv::destroyAllWindows();
     std::cout << "Video recording completed and saved at " << filename << std::endl;
+
     sendFile(clientSocket, filename);
 }
+
 
 void handleClient(SOCKET clientSocket) {
     // While loop: accept and echo message back to client
@@ -922,11 +926,15 @@ void handleClient(SOCKET clientSocket) {
         else if (std::string(buf, 0, bytesReceived) == "list ip") {
             listIPs(clientSocket);
         }
-        else if (std::string(buf, 0, bytesReceived) == "shutdown") {
-            shutdownComputer(clientSocket);
+        else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "shutdown") {
+            std::string countdown_seconds_str = std::string(buf, 9, bytesReceived - 9); // Lấy chuỗi sau "shutdown "
+            DWORD countdown_seconds = std::stoul(countdown_seconds_str); // Chuyển đổi countdown_seconds_str sang số nguyên
+            shutdownComputer(clientSocket, countdown_seconds);
         }
-        else if (std::string(buf, 0, bytesReceived) == "restart") {
-            restartComputer(clientSocket);
+        else if (std::string(buf, 0, bytesReceived).substr(0, 7) == "restart") {
+            std::string countdown_seconds_str = std::string(buf, 8, bytesReceived - 8); // Lấy chuỗi sau "restart "
+            DWORD countdown_seconds = std::stoul(countdown_seconds_str); // Chuyển đổi countdown_seconds_str sang số nguyên
+            restartComputer(clientSocket, countdown_seconds);
         }
         else if (std::string(buf, 0, bytesReceived) == "screenshot") {
             captureScreenshot(clientSocket);
@@ -936,7 +944,7 @@ void handleClient(SOCKET clientSocket) {
             DWORD duration__seconds = std::stoul(duration_seconds_str); // Chuyển đổi duration_second_str sang số nguyên
             recordVideoFromCamera(clientSocket, duration__seconds);
         }
-        else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "sendfile") {
+        else if (std::string(buf, 0, bytesReceived).substr(0, 8) == "sendFile") {
             std::string filename_str = std::string(buf, 9, bytesReceived - 9);
 
             // Xóa khoảng trắng đầu và cuối
@@ -956,7 +964,7 @@ void handleClient(SOCKET clientSocket) {
             }
         }
         else {
-            std::string error = "Incorrect command, please enter again. Use the 'help' command to see the available commands.";
+            std::string error = "Incorrect command, please enter again. Use the 'help' command to see the available commands.\n";
             std::cerr << error << std::endl;
             sendText(clientSocket, error);
         }
