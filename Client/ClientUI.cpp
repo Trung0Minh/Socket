@@ -295,7 +295,7 @@ void ClientUI::OnConnectClick(wxCommandEvent& event) {
                 serverIpInput->SetHint("Enter another server IP or click Complete");
             }
             else {
-                wxMessageBox("Connection failed! Server might be offline or unreachable.",
+                wxMessageBox("Connection failed! Server might be offline",
                     "Error", wxOK | wxICON_ERROR);
             }
             });

@@ -108,30 +108,20 @@ bool Client::receiveData(std::string& response) {
         return false;
     }
 
-    try {
-        std::vector<char> buffer(DEFAULT_BUFLEN);
-        size_t bytesReceived = clientSocket->Receive(buffer.data(), buffer.size());
+    std::vector<char> buffer(DEFAULT_BUFLEN);
+    // Clear buffer
+    std::fill(buffer.begin(), buffer.end(), 0);
 
-        if (bytesReceived == static_cast<size_t>(-1)) {
-            log("Error receiving data");
-            disconnect();
-            return false;
-        }
+    size_t bytesReceived = clientSocket->Receive(buffer.data(), DEFAULT_BUFLEN);
 
-        if (bytesReceived == 0) {
-            log("No data received");
-            return false;
-        }
-
-        // Tạo string từ buffer với độ dài chính xác
-        response = std::string(buffer.data(), bytesReceived);
+    if (bytesReceived > 0) {
+        response.assign(buffer.data(), bytesReceived);
         return true;
     }
-    catch (const std::exception& e) {
-        log("Error in receiveData: " + std::string(e.what()));
-        disconnect();
-        return false;
-    }
+
+    log(bytesReceived == 0 ? "No data received (timeout)" : "Connection error while receiving data");
+    disconnect();
+    return false;
 }
 
 bool Client::executeCommand(const std::string& serverIP, const std::string& command,
