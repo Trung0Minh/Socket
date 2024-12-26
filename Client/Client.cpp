@@ -13,7 +13,12 @@ void Client::initializeEmailMonitor() {
             std::string& response, const std::string& senderEmail, bool& shouldMarkAsRead) {
                 try {
                     if (serverIP.empty() || command.empty()) {
-                        log("Error: Invalid command parameters");
+                        std::string errorMsg = "Error: Invalid command parameters. Missing SERVER IP or COMMAND";
+                        std::string formattedMessage = "TYPE:text|SIZE:" + std::to_string(errorMsg.size()) + "\n" + errorMsg;
+                        if (!sendEmail(senderEmail, "Command Execution Failed", formattedMessage)) {
+                            log("Failed to send error notification email. Email content: " + formattedMessage);
+                        }
+                        shouldMarkAsRead = true;
                         return false;
                     }
                     lastSenderEmail = senderEmail;

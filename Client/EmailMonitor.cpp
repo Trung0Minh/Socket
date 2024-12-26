@@ -232,7 +232,7 @@ void EmailMonitor::monitorEmails() {
 
     while (running) {
         try {
-            auto start = std::chrono::steady_clock::now();
+            //auto start = std::chrono::steady_clock::now();
 
             if (checkNewEmails()) {
                 std::unique_lock<std::mutex> lock(queueMutex);
@@ -247,12 +247,12 @@ void EmailMonitor::monitorEmails() {
                 }
             }
 
-            auto duration = std::chrono::steady_clock::now() - start;
-            if (duration > NETWORK_TIMEOUT) {
-                log("Warning: Operation took " +
-                    std::to_string(std::chrono::duration_cast<std::chrono::seconds>(duration).count()) +
-                    " seconds");
-            }
+            //auto duration = std::chrono::steady_clock::now() - start;
+            //if (duration > NETWORK_TIMEOUT) {
+            //    log("Warning: Operation took " +
+            //        std::to_string(std::chrono::duration_cast<std::chrono::seconds>(duration).count()) +
+            //        " seconds");
+            //}
 
             std::this_thread::sleep_for(CHECK_INTERVAL);
         }
