@@ -21,7 +21,7 @@ Hãy nhớ thêm địa chỉ gmail vào danh sách **Test users** nếu dự á
 Sau khi thực hiện lấy file `credentials.json`, mở `Config.cpp` và dán **Client ID** và **Client Secret**, cùng với path để lưu file `token.json` (thường mặc định là "token.json" - cùng cấp với mã nguồn chính).
 
 ---
-# Yêu cầu về thư viện
+# Các thư viện ngoài
 
 ## Client
 1. WxWidgets: https://www.wxwidgets.org
