@@ -13,7 +13,14 @@
 9. Nhấn nút **Download JSON** để tải file `credentials.json`.
 10. Lưu file này vào thư mục dự án của bạn, thường là cùng cấp với mã nguồn chính.
 
+Hãy nhớ thêm địa chỉ gmail vào danh sách **Test users** nếu dự án vẫn còn ở chế độ **Testing**.
+
 ---
 # Config
-Sau khi thực hiện lấy file `credentials.json`, mở `Config.cpp` và dán **Client ID** và **Client Secret**, cùng với path để lưu file `token.json` (thường mặc định là `token.json` - cùng cấp với mã nguồn chính) 
 
+Sau khi thực hiện lấy file `credentials.json`, mở `Config.cpp` và dán **Client ID** và **Client Secret**, cùng với path để lưu file `token.json` (thường mặc định là "token.json" - cùng cấp với mã nguồn chính).
+
+---
+# Cài đặt thư viện
+
+Vào folder **External Libraries** và cài đặt các thư viện vào **Visual Studio**, trong đó các thư viện Base64 và Json là header only. 
