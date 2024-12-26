@@ -21,6 +21,8 @@ Hãy nhớ thêm địa chỉ gmail vào danh sách **Test users** nếu dự á
 Sau khi thực hiện lấy file `credentials.json`, mở `Config.cpp` và dán **Client ID** và **Client Secret**, cùng với path để lưu file `token.json` (thường mặc định là "token.json" - cùng cấp với mã nguồn chính).
 
 ---
-# Cài đặt thư viện
+# Yêu cầu về thư viện
 
-Vào folder **External Libraries** và cài đặt các thư viện vào **Visual Studio**, trong đó các thư viện Base64 và Json là header only. 
+## Client
+1. WxWidgets: https://www.wxwidgets.org
+2. 
