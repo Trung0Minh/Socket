@@ -8,7 +8,7 @@
 4. Truy cập **APIs & Services** > **Library**, tìm kiếm **Gmail API** và nhấn nút **Enable**.
 5. Chọn **APIs & Services** > **Credentials** từ menu bên trái.
 6. Nhấn nút **Create Credentials** và chọn **OAuth 2.0 Client IDs**.
-7. Thực hiện cấu hình OAuth consent screen, link Youtube hướng dẫn: https://www.youtube.com/watch?v=1Ua0Eplg75M
+7. Thực hiện cấu hình OAuth consent screen. Link [Youtube](https://www.youtube.com/watch?v=1Ua0Eplg75M) hướng dẫn. 
 8. Sau khi tạo thành công, bạn sẽ thấy một cửa sổ hiện ra với các thông tin Client ID và Client Secret.
 9. Nhấn nút **Download JSON** để tải file `credentials.json`.
 10. Lưu file này vào thư mục dự án của bạn, thường là cùng cấp với mã nguồn chính.
@@ -25,4 +25,9 @@ Sau khi thực hiện lấy file `credentials.json`, mở `Config.cpp` và dán 
 
 ## Client
 1. WxWidgets: https://www.wxwidgets.org
-2. 
+2. cURL: https://curl.se
+3. Base64: https://github.com/ReneNyffenegger/cpp-base64/tree/master
+4. Json for C++: https://github.com/nlohmann/json
+
+## Server
+
