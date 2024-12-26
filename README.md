@@ -30,8 +30,8 @@ Sau khi thực hiện lấy file `credentials.json`, mở `Config.cpp` và dán 
 4. Json for C++: https://github.com/nlohmann/json
 
 ## Server
-1 OpenCV2: https://www.opencv.org/releases chọn windows để tải opencv build sẵn
-Sau đó để đường dẫn include và lib vào visual studio , ngoài ra thêm biến môi trường vào file PATH 
-2 Stb : Truy cập kho lưu trữ STB trên GitHub: https://github.com/nothings/stb
+1. OpenCV2: https://www.opencv.org/releases.
+Chọn windows để tải opencv build sẵn, sau đó để đường dẫn include và lib vào visual studio , ngoài ra thêm biến môi trường vào file PATH 
+3. Stb : Truy cập kho lưu trữ STB trên GitHub: https://github.com/nothings/stb
 Có thể dùng lệnh git clone https://github.com/nothings/stb
 Đưa đường dẫn include của stb vào visual studio .
